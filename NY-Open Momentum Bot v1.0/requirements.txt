@@ -1,0 +1,7 @@
+# NY-Open Momentum Bot v1.0 Dependencies
+# Python 3.8+ compatible
+
+MetaTrader5>=5.0.30
+pytz>=2020.1
+pandas>=1.1.0
+
