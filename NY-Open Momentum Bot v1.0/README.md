@@ -1,156 +1,95 @@
-# NY-Open Momentum Bot v1.0 (NAS100 M15 Breakout)
+# NY-Open Momentum Bot v1.0 (Multi-Asset Portfolio EA)
 
 A fully automated, institutional-grade Expert Advisor for **MetaTrader 5 (MT5)** developed in **Python 3.8+** using the official `MetaTrader5` API and `pytz`.
 
-The bot specializes in high-velocity intraday momentum capturing on **NAS100 (Nasdaq 100)** during the official New York Cash Open (09:30 - 09:35 ET).
+The bot specializes in high-velocity intraday momentum capturing at the **New York Cash Open (09:30 - 09:35 ET)** across major liquid instruments:
+- 📈 **Nasdaq 100 Index (`USTECm` / `NAS100`)**
+- 🥇 **Gold (`XAUUSDm` / `GOLD`)**
+- ₿ **Bitcoin (`BTCUSDm` / `BTCUSD`)**
+- 💶 **Euro / US Dollar (`EURUSDm`)**
+
+---
+
+## ⏰ Market Timing & Bangladesh Time (BST) Conversion
+
+The strategy is strictly bound to the New York Cash Open. The bot uses `datetime.now(pytz.timezone('US/Eastern'))` to auto-adjust for US Daylight Saving Time (DST) changes.
+
+| Event | US / Eastern Time (ET) | BD Time (Winter / Current) | BD Time (Summer / DST) |
+|---|---|---|---|
+| **Pre-Market Standby** | Before 09:30 AM | Before 08:30 PM | Before 07:30 PM |
+| **5-Min Range Formation** | **09:30 AM – 09:35 AM** | **08:30 PM – 08:35 PM** | **07:30 PM – 07:35 PM** |
+| **Breakout Box Finalized** | **09:35 AM** | **08:35 PM** | **07:35 PM** |
+| **Trade Execution Window** | **09:35 AM – 11:00 AM** | **08:35 PM – 10:00 PM** | **07:35 PM – 09:00 PM** |
+| **Session End / EOD Exit** | 04:00 PM | 03:00 AM (Next Day) | 02:00 AM (Next Day) |
+
+> [!NOTE]
+> **No manual clock adjustment is required.** The internal `pytz` engine automatically syncs with US Eastern Time regardless of where the bot is hosted.
 
 ---
 
 ## 📈 Core Strategy Architecture
 
 ```
-09:30 ET                     09:35 ET                                               11:00 ET
+09:30 ET (8:30 PM BD)        09:35 ET (8:35 PM BD)                                 11:00 ET (10:00 PM BD)
 ---|----------------------------|-------------------------------------------------------|--->
    │  09:30-09:35 M5 Candle     │                Breakout Execution Phase               │
-   │  Forming "Breakout Box"   │  • Candle Close > Range High  --> BUY (SL: Low - 10)  │
-   │                            │  • Candle Close < Range Low   --> SELL (SL: High + 10)│
-   │                            │  • Active Trailing Stop (+50 pt trigger, 30 pt trail) │
-   │                            │  • Max 1 Trade / Day, Max Daily Loss -200 pts         │
+   │  Forming "Breakout Box"   │  • Candle Close > Range High  --> BUY (SL: Low - Buffer)│
+   │                            │  • Candle Close < Range Low   --> SELL (SL: High + Buffer)│
+   │                            │  • Dynamic Trailing Stop (+Trigger, Trail Distance)   │
+   │                            │  • Max 1 Trade / Day per Pair, Max Daily Loss Cap     │
 ```
 
-### 1. Timing Filter
-- **New York Cash Open**: 09:30 - 09:35 ET (14:30 - 14:35 UTC).
-- Uses `datetime.now(pytz.timezone('US/Eastern'))` to guarantee broker-independent time conversion.
-- Built-in **Weekend & US Market Holiday Filter** prevents execution on Saturdays, Sundays, and major US exchange holidays (New Year's Day, MLK Day, Presidents' Day, Good Friday, Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas).
+### 1. Timing Filter & Calendar Shield
+- Evaluates the opening 5-minute candle at **09:30 – 09:35 ET**.
+- **Weekend & Holiday Filter**: Automatically suppresses trading on Saturdays, Sundays, and official US Market Holidays (NYSE / NASDAQ calendar).
 
 ### 2. 5-Minute Range Box Analysis
-- At **09:35 ET**, the bot fetches the completed `09:30-09:35` M5 candle.
-- Records `Range High` and `Range Low` establishing the **Breakout Box**.
-- **Volatility Filter**: If `Range Size < 30.0 points`, the day is marked as low-volatility and trading is halted for the day.
+- At **09:35 ET (08:35 PM BD)**, the bot records the `Range High` and `Range Low` of the completed M5 candle.
+- **Volatility Threshold**: If the range is smaller than the asset's minimum requirement, the day is classified as low-volatility and no trades are taken.
 
 ### 3. Breakout Entry (Candle Close Only)
-- **Long Entry**: Price breaks and **closes** strictly above the 5-min range high.
-- **Short Entry**: Price breaks and **closes** strictly below the 5-min range low.
-- **No Wick Breaks**: Execution occurs strictly on a confirmed candle close (default `M15`, configurable to `M5`).
-- **Frequency Limit**: Strictly **1 trade per day**.
+- **Long Entry**: Price breaks and **closes** strictly above the 5-min Range High.
+- **Short Entry**: Price breaks and **closes** strictly below the 5-min Range Low.
+- **No Wick Whipsaws**: Execution requires a confirmed candle close (default `M15`, configurable to `M5`).
+- **Cap**: Strictly **1 trade per day per asset**.
 
-### 4. Trade Management
-- **Initial Stop Loss**: Opposite boundary of the 5-min range box:
-  - **Long**: `SL = 5-min Range Low - 10 points buffer`
-  - **Short**: `SL = 5-min Range High + 10 points buffer`
+### 4. Trade Management & Trailing Stop
+- **Initial Stop Loss**: Placed at the opposite boundary of the 5-minute box (+/- buffer).
 - **Dynamic Trailing Stop**:
-  - Activates when position is **+50 points** in profit.
-  - Trails **30 points** behind current market price.
-  - Updates MT5 Stop Loss in **5-point steps** as price moves in favor.
-- **Take Profit**: No fixed TP. Let the trailing stop capture maximum trend extension.
+  - Activates when unrealized profit reaches the threshold.
+  - Trails behind current market price.
+  - Updates MT5 Stop Loss in defined step increments.
+- **Take Profit**: No fixed TP. The trailing stop captures maximum trend expansion.
 
-### 5. Strict Risk Controls
-- **Lot Size**: `0.1` lots (configurable in `config.py`).
-- **Max Daily Loss**: `-200 points`. If cumulative loss reaches -200 points, all trading is stopped for the remainder of the day.
-
----
-
-## 📁 Project Directory Structure
-
-```
-e:\EA's\NY-Open Momentum Bot v1.0\
-│
-├── config.py             # Global configuration, risk rules, symbol candidates & time parameters
-├── main.py               # Main bot loop, heartbeat monitor, and signal handler
-├── strategy.py           # Core ORB momentum logic, trailing stop engine, daily state manager
-├── mt5_manager.py        # MetaTrader 5 API integration, auto-symbol detection, order handling
-├── holidays_filter.py    # Weekend and NYSE/NASDAQ holiday calendar validation
-├── trade_logger.py       # Multi-channel logger (console & file) and CSV trade recorder
-├── test_strategy.py      # Standalone unit tests for math, timing, SL, and trailing logic
-├── requirements.txt      # Python dependencies (MetaTrader5, pytz, pandas)
-├── run_bot.bat           # One-click Windows launcher
-└── README.md             # Complete documentation and strategy guide
-```
-
----
-
-## ⚙️ Installation & Requirements
-
-### 1. Prerequisites
-- **Operating System**: Windows 10 / 11 or Windows Server.
-- **Python**: Python 3.8+ (64-bit).
-- **MetaTrader 5 Terminal**: Installed with an active Demo or Live account.
-
-### 2. Enable Algo Trading in MetaTrader 5
-1. Open your **MetaTrader 5** terminal.
-2. Navigate to **Tools** -> **Options** (or press `Ctrl+O`).
-3. Click on the **Expert Advisors** tab.
-4. Check **"Allow Algo Trading"**.
-5. Ensure **NAS100** (or your broker's symbol variant) is visible in the **Market Watch** window (`Ctrl+M`).
-
-### 3. Install Python Dependencies
-Open PowerShell or Command Prompt in this folder and run:
-```bash
-py -3.8 -m pip install -r requirements.txt
-```
-
----
-
-## 🚀 Running the Bot (Single File Controller)
-
-You can run everything via **`bot.py`**:
-
-```bash
-py -3.8 bot.py
-```
-This launches the **Interactive Control Panel**:
-
-```text
-======================================================================
-           NY-OPEN MOMENTUM BOT v1.0 - CONTROL PANEL
-======================================================================
- [1] Start Live Trading Bot  (Type 'stop' or 'q' to stop cleanly)
- [2] Run Historical Backtest (Analyzes past 3+ months of data)
- [3] Test MT5 Connection & Account Status
- [4] View Live Trade History & Results
- [5] Exit
-======================================================================
-```
-
-### Direct CLI Commands
-* **Start Live Bot directly**:
-  ```bash
-  py -3.8 bot.py --live
-  ```
-  *(To stop the bot at any time, simply type `stop` or `q` and press **Enter**, or press **Ctrl+C**)*.
-
-* **Run Historical Backtest**:
-  ```bash
-  py -3.8 bot.py --backtest
-  ```
-  *(Or run `py -3.8 backtest.py`)*
-
-* **Check MT5 Connection & Available Symbols**:
-  ```bash
-  py -3.8 bot.py --check
-  ```
+### 5. Dynamic Position Sizing (Risk Management)
+- **Dynamic Lot Sizing** (`USE_DYNAMIC_LOT = True`): Automatically sizes every position to risk a fixed percentage (default `1.0%`) of account equity based on Stop Loss distance:
+  $$\text{Lots} = \frac{\text{Account Balance} \times \text{Risk \%}}{\text{Stop Loss Distance (pts)} \times \text{Point Value}}$$
+- Clamps and snaps to broker constraints (`volume_min`, `volume_step`, `volume_max`).
+- **Fixed Lot Sizing** fallback supported (`USE_DYNAMIC_LOT = False`, `LOT_SIZE = 0.1`).
 
 ---
 
 ## 📊 Multi-Asset Portfolio Backtest Comparison
 
-A comprehensive backtest was run across all 4 supported instruments on Exness historical M5 data ($1,000 Starting Deposit, 1.0% Dynamic Risk):
+Backtested directly on broker historical tick and M5 data (**20,000 bars, ~3 Months: July 22 – Oct 30, 2026**) on an active Exness account with **$1,000 Starting Capital (1.0% Risk / Trade)**:
 
 | Symbol | Asset Class | Trades | Win Rate % | Net P&L ($) | Return (ROI) | Profit Factor | Max Drawdown % |
 |---|---|---|---|---|---|---|---|
-| **`XAUUSDm`** | **Gold / USD** | **71** | **80.28%** 🏆 | **+$729.49** | **+72.95%** | **1.69** | **16.27%** |
-| **`BTCUSDm`** | **Bitcoin / USD** | **49** | **61.22%** | **+$200.51** | **+20.05%** | **2.06** | **4.23%** 🛡️ |
-| **`USTECm`** | **Nasdaq 100** | **69** | **68.12%** | **+$2.16** | **+0.22%** | **1.01** | **5.71%** |
-| **`EURUSDm`** | **Euro / USD** | **8** | **0.00%** | **-$21.70** | **-2.17%** | **0.00** | **3.96%** |
+| **`XAUUSDm`** | **Gold vs US Dollar** | **71** | **80.28%** 🏆 | **+$729.49** | **+72.95%** | **1.69** | **16.27%** |
+| **`BTCUSDm`** | **Bitcoin vs USD** | **49** | **61.22%** | **+$200.51** | **+20.05%** | **2.06** | **4.23%** 🛡️ |
+| **`USTECm`** | **Nasdaq 100 Index** | **69** | **68.12%** | **+$2.16** | **+0.22%** | **1.01** | **5.71%** |
+| **`EURUSDm`** | **Euro vs US Dollar** | **8** | **0.00%** | **-$21.70** | **-2.17%** | **0.00** | **3.96%** |
 
-> **Key Takeaway**: **Gold (`XAUUSDm`)** and **Bitcoin (`BTCUSDm`)** exhibit exceptional opening range momentum at the 09:30 ET New York open, delivering +72.95% and +20.05% net returns respectively with strong win rates!
+> [!TIP]
+> **Key Finding**: **Gold (`XAUUSDm`)** and **Bitcoin (`BTCUSDm`)** show extraordinary opening range momentum during New York Open, generating **+72.95%** and **+20.05%** returns with strong win rates!
 
 ---
 
-## 🌐 Supported Asset Profiles & Volatility Settings
+## 🌐 Asset Class Profiles ([`config.py`](file:///e:/EA's/NY-Open%20Momentum%20Bot%20v1.0/config.py))
 
 | Parameter | USTECm (Nasdaq) | XAUUSDm (Gold) | BTCUSDm (Bitcoin) | EURUSDm (Forex) |
 |---|---|---|---|---|
+| **Magic Number** | `930101` | `930102` | `930103` | `930104` |
 | **Min Range Filter** | 30.0 pts | 3.0 pts ($3.00) | 150.0 pts ($150) | 0.0008 (8 pips) |
 | **Stop Loss Buffer** | 10.0 pts | 1.0 pt ($1.00) | 50.0 pts ($50) | 0.0003 (3 pips) |
 | **Trailing Trigger** | +50.0 pts | +5.0 pts ($5.00) | +250.0 pts ($250) | +0.0015 (15 pips) |
@@ -159,42 +98,68 @@ A comprehensive backtest was run across all 4 supported instruments on Exness hi
 
 ---
 
-## 🛠️ Configuration Options (`config.py`)
+## 🚀 How to Run the Bot
 
-All key parameters can be customized directly in `config.py`:
-
-| Parameter | Default | Description |
-|---|---|---|
-| `SYMBOL_CANDIDATES` | `["NAS100", "NAS100.m", ...]` | Auto-detected Nasdaq symbols |
-| `FORCED_SYMBOL` | `None` | Set to `"NAS100"` to bypass auto-detection |
-| `LOT_SIZE` | `0.1` | Fixed lot size per trade |
-| `EXECUTION_TIMEFRAME_NAME` | `"M15"` | Candle close timeframe (`"M15"` or `"M5"`) |
-| `MIN_RANGE_POINTS` | `30.0` | Minimum 5-min range to allow trading |
-| `SL_BUFFER_POINTS` | `10.0` | Buffer beyond opposite side of breakout box |
-| `TRAILING_TRIGGER_POINTS` | `50.0` | Profit threshold to turn on trailing stop |
-| `TRAILING_DISTANCE_POINTS` | `30.0` | Trailing distance behind market price |
-| `TRAILING_STEP_POINTS` | `5.0` | Minimum incremental advance to modify SL |
-| `MAX_DAILY_LOSS_POINTS` | `200.0` | Maximum cumulative loss allowed per day |
-| `MAX_TRADES_PER_DAY` | `1` | Daily trade execution cap |
-
----
-
-## 📊 CSV Trade Logging Output
-
-Closed trades are logged in real-time to `trades_history.csv` with the following columns:
-
-```csv
-TradeID,Timestamp,Symbol,Action,Lots,EntryPrice,InitialSL,ExitPrice,CloseTime,PnL_Points,PnL_Currency,ExitReason,MagicNumber
-1098421,2026-11-02 09:45:00,NAS100,BUY,0.10,20520.50,20465.00,20595.00,2026-11-02 10:15:20 ET,+74.50,+$149.00,Trailing Stop,930100
-```
-
----
-
-## 🧪 Running Unit Tests
-
-To run the offline test suite:
+Navigate to the bot folder in your terminal:
 ```cmd
-py -3.8 test_strategy.py
+cd /d "E:\EA's\NY-Open Momentum Bot v1.0"
 ```
-Outputs validation for US holidays, weekend rules, SL buffer offsets, range filtering, and step-wise trailing stop calculations.
 
+### 1. Interactive Control Panel (Recommended)
+```cmd
+python bot.py
+```
+This presents the master terminal menu:
+```text
+===========================================================================
+           NY-OPEN MOMENTUM BOT v1.0 - PORTFOLIO CONTROL PANEL
+===========================================================================
+ [1] Start Live Trading on ALL 4 Pairs (USTEC, Gold, BTC, EURUSD)
+ [2] Start Live Trading on a SINGLE Pair (Select one)
+ [3] Run Historical Backtest (Single Pair or All 4 Pairs Comparison)
+ [4] Test MT5 Connection & Account Status
+ [5] View Live Trade History & Results
+ [6] Exit
+===========================================================================
+```
+
+### 2. Direct Live Bot Execution
+```cmd
+python bot.py --live
+```
+*(To stop the bot safely anytime, simply type **`stop`** or **`q`** and press **Enter**, or press **Ctrl+C**)*.
+
+### 3. Run Backtests Anytime
+- **Backtest All 4 Pairs together**:
+  ```cmd
+  python backtest.py --all --deposit 1000 --risk 1.0
+  ```
+- **Backtest Gold only**:
+  ```cmd
+  python backtest.py --pair XAUUSDm --deposit 1000 --risk 1.0
+  ```
+- **Backtest Bitcoin only**:
+  ```cmd
+  python backtest.py --pair BTCUSDm --deposit 1000 --risk 1.0
+  ```
+
+---
+
+## 📁 Project File Layout
+
+```
+e:\EA's\NY-Open Momentum Bot v1.0\
+│
+├── config.py             # Portfolio pairs, risk scaling, asset profiles & broker settings
+├── bot.py                # Unified Interactive Controller & single-file launcher
+├── strategy.py           # Core ORB momentum logic, trailing stops & PortfolioStrategyManager
+├── backtest.py           # Multi-asset backtest engine with drawdown and compounding stats
+├── mt5_manager.py        # MetaTrader 5 API integration, order execution & dynamic lot calculation
+├── holidays_filter.py    # Weekend and NYSE/NASDAQ holiday calendar validation
+├── trade_logger.py       # Multi-channel logger (console & file) and CSV trade recorder
+├── check_mt5_connection.py # Standalone MT5 connection & broker symbol diagnostics
+├── test_strategy.py      # Unit test suite for offline math & holiday validations
+├── requirements.txt      # Python dependencies (MetaTrader5, pytz, pandas)
+├── run_bot.bat           # Windows one-click launcher
+└── README.md             # Complete documentation
+```
