@@ -7,12 +7,16 @@ echo          NY-Open Momentum Bot v1.0 (NAS100 M15 / M5 EA)
 echo =======================================================================
 echo.
 
-:: Detect Python 3.8 or py launcher
-where py >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    set PYTHON_CMD=py -3.8
+:: Detect Python executable
+if exist "%LOCALAPPDATA%\Programs\Python\Python38\python.exe" (
+    set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python38\python.exe"
 ) else (
-    set PYTHON_CMD=python
+    where python >nul 2>&1
+    if %ERRORLEVEL% EQU 0 (
+        set PYTHON_CMD=python
+    ) else (
+        set PYTHON_CMD=py -3.8
+    )
 )
 
 echo Checking dependencies from requirements.txt...
