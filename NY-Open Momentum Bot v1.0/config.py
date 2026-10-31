@@ -26,20 +26,36 @@ MT5_TIMEOUT_MS = 60000
 # Candidates for auto-detection across different brokers (Exness, FTMO, IC Markets, etc.)
 SYMBOL_CANDIDATES = [
     "USTECm",      # Exness Standard / Trial account symbol for Nasdaq 100
+    "XAUUSDm",     # Gold vs US Dollar
+    "BTCUSDm",     # Bitcoin vs US Dollar
+    "EURUSDm",     # Euro vs US Dollar
     "USTEC",
-    "USTEC.m",
-    "NAS100",
-    "NAS100.m",
-    "NAS100_m",
-    "US100",
-    "US100Cash",
-    "NQ",
-    "NASUSD",
-    "NDX"
+    "XAUUSD",
+    "BTCUSD",
+    "EURUSD"
 ]
 
-# Active symbol for live trading (Options: "USTECm", "XAUUSDm", "EURUSDm", "BTCUSDm")
-FORCED_SYMBOL = "USTECm"
+# Active single symbol override (leave None to trade all ACTIVE_PAIRS in portfolio mode)
+FORCED_SYMBOL = None
+
+# ==============================================================================
+# MULTI-ASSET PORTFOLIO TRADING
+# ==============================================================================
+# All pairs monitored and traded SIMULTANEOUSLY in Live Trading mode:
+ACTIVE_PAIRS = [
+    "USTECm",      # Nasdaq 100 Index
+    "XAUUSDm",     # Gold vs US Dollar
+    "BTCUSDm",     # Bitcoin vs US Dollar
+    "EURUSDm"      # Euro vs US Dollar
+]
+
+# Magic numbers uniquely assigned per pair to prevent cross-trade interference
+MAGIC_NUMBERS = {
+    "USTECm": 930101,
+    "XAUUSDm": 930102,
+    "BTCUSDm": 930103,
+    "EURUSDm": 930104
+}
 
 # ==============================================================================
 # MULTI-ASSET PROFILES & RISK SCALING

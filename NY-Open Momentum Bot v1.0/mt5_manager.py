@@ -90,11 +90,30 @@ class MT5Manager:
                 f"Leverage: 1:{account.leverage} | Server: {account.server}"
             )
 
-        # Detect target NAS100 symbol
-        if not self.detect_and_select_symbol():
-            return False
+        # Initialize all portfolio symbols in Market Watch
+        self.initialize_symbols(config.ACTIVE_PAIRS)
 
         return True
+
+    def initialize_symbols(self, symbols: List[str]):
+        """Selects all target portfolio symbols in MT5 Market Watch."""
+        for s in symbols:
+            if not mt5.symbol_select(s, True):
+                self.logger.warning(f"Could not enable symbol '{s}' in Market Watch.")
+            else:
+                info = mt5.symbol_info(s)
+                if info:
+                    self.logger.info(
+                        f"Portfolio Pair Ready: '{s}' | Digits: {info.digits} | "
+                        f"Spread: {info.spread} | Min Lot: {info.volume_min}"
+                    )
+        # Default active symbol is the first in list
+        if symbols:
+            self.symbol = symbols[0]
+            info = mt5.symbol_info(self.symbol)
+            if info:
+                self.digits = info.digits
+                self.point = info.point
 
     def detect_and_select_symbol(self) -> bool:
         """
@@ -156,62 +175,58 @@ class MT5Manager:
             mt5.shutdown()
             self.logger.info("MT5 connection gracefully terminated.")
 
-    def get_current_tick(self) -> Optional[Tuple[float, float]]:
+    def get_current_tick(self, symbol: str = None) -> Optional[Tuple[float, float]]:
         """Returns (bid, ask) tuple or None if unavailable."""
-        tick = mt5.symbol_info_tick(self.symbol)
+        sym = symbol or self.symbol
+        tick = mt5.symbol_info_tick(sym)
         if tick is None:
             return None
         return tick.bid, tick.ask
 
-    def get_m5_ny_open_candle(self, ny_date: date) -> Optional[Dict]:
+    def get_m5_ny_open_candle(self, ny_date: date, symbol: str = None) -> Optional[Dict]:
         """
-        Retrieves the 09:30-09:35 ET M5 candle for the given date.
-        Uses candle UNIX timestamps converted to US/Eastern timezone
-        to ensure exact broker-independent timing.
+        Retrieves the 09:30-09:35 ET M5 candle for the given date and symbol.
+        Uses candle UNIX timestamps converted to US/Eastern timezone.
         """
-        # Fetch recent M5 bars (last 100 bars covers several days of M5 data)
-        rates = mt5.copy_rates_from_pos(self.symbol, mt5.TIMEFRAME_M5, 0, 150)
+        sym = symbol or self.symbol
+        rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M5, 0, 150)
         if rates is None or len(rates) == 0:
-            self.logger.warning("No M5 rates returned from MT5.")
             return None
 
-        # Iterate through bars and find the one that corresponds to 09:30 ET of ny_date
         target_open_time = time(9, 30)
         target_close_time = time(9, 35)
 
+        profile = config.get_pair_profile(sym)
+        point_unit = profile.get("index_point_size", 1.0)
+
         for rate in reversed(rates):
-            # rate['time'] is UTC unix epoch
             dt_utc = datetime.fromtimestamp(rate["time"], tz=pytz.utc)
             dt_ny = dt_utc.astimezone(self.ny_tz)
 
             if dt_ny.date() == ny_date and dt_ny.time() == target_open_time:
-                # Check if this candle is closed.
-                # A candle is closed if current NY time is >= 09:35 ET
                 now_ny = datetime.now(self.ny_tz)
                 if now_ny.date() == ny_date and now_ny.time() < target_close_time:
-                    # Candle is still actively forming
                     return None
 
-                candle_data = {
+                return {
                     "open": float(rate["open"]),
                     "high": float(rate["high"]),
                     "low": float(rate["low"]),
                     "close": float(rate["close"]),
                     "volume": float(rate["tick_volume"]),
                     "time_ny": dt_ny,
-                    "range_points": (float(rate["high"]) - float(rate["low"])) / self.index_point_unit
+                    "range_points": (float(rate["high"]) - float(rate["low"])) / point_unit
                 }
-                return candle_data
 
         return None
 
-    def get_latest_closed_candle(self, timeframe_name: str) -> Optional[Dict]:
+    def get_latest_closed_candle(self, timeframe_name: str, symbol: str = None) -> Optional[Dict]:
         """
-        Returns the most recently completed candle for the specified timeframe
-        ('M15' or 'M5'). Index 1 corresponds to the last completed candle.
+        Returns the most recently completed candle for the specified timeframe and symbol.
         """
+        sym = symbol or self.symbol
         tf = mt5.TIMEFRAME_M15 if timeframe_name.upper() == "M15" else mt5.TIMEFRAME_M5
-        rates = mt5.copy_rates_from_pos(self.symbol, tf, 1, 1)
+        rates = mt5.copy_rates_from_pos(sym, tf, 1, 1)
         if rates is None or len(rates) == 0:
             return None
 
@@ -229,14 +244,14 @@ class MT5Manager:
             "volume": float(rate["tick_volume"])
         }
 
-    def _get_filling_mode(self) -> int:
+    def _get_filling_mode(self, symbol: str = None) -> int:
         """Determines supported order filling mode for current broker and symbol."""
-        info = mt5.symbol_info(self.symbol)
+        sym = symbol or self.symbol
+        info = mt5.symbol_info(sym)
         if not info:
             return mt5.ORDER_FILLING_IOC
 
         fill_flags = info.filling_mode
-        # ORDER_FILLING_IOC = 1, ORDER_FILLING_FOK = 2
         if fill_flags & 1:
             return mt5.ORDER_FILLING_IOC
         elif fill_flags & 2:
@@ -244,28 +259,27 @@ class MT5Manager:
         else:
             return mt5.ORDER_FILLING_RETURN
 
-    def calculate_lot_size(self, sl_distance_points: float) -> float:
+    def calculate_lot_size(self, sl_distance_points: float, symbol: str = None) -> float:
         """
-        Calculates position lot size.
+        Calculates position lot size for the given symbol.
         If USE_DYNAMIC_LOT is True: calculates lots based on RISK_PERCENT of account balance.
         If False: returns fixed config.LOT_SIZE.
         Normalizes lot size according to broker volume constraints (min, step, max).
         """
+        sym = symbol or self.symbol
         if not config.USE_DYNAMIC_LOT:
-            return self._normalize_lot_size(config.LOT_SIZE)
+            return self._normalize_lot_size(config.LOT_SIZE, sym)
 
         account = mt5.account_info()
         if account is None or account.balance <= 0:
             self.logger.warning("Could not read account balance for dynamic lots. Using fixed lot size.")
-            return self._normalize_lot_size(config.LOT_SIZE)
+            return self._normalize_lot_size(config.LOT_SIZE, sym)
 
-        # Risk in dollars = balance * (risk_pct / 100)
         risk_cash = account.balance * (config.RISK_PERCENT / 100.0)
 
-        # Cost per 1.0 lot for SL distance
-        info = mt5.symbol_info(self.symbol)
+        info = mt5.symbol_info(sym)
         if not info:
-            return self._normalize_lot_size(config.LOT_SIZE)
+            return self._normalize_lot_size(config.LOT_SIZE, sym)
 
         point_usd = 1.0
         if info.trade_tick_size > 0 and info.trade_tick_value_profit > 0:
@@ -274,24 +288,24 @@ class MT5Manager:
 
         cost_per_lot = sl_distance_points * point_usd
         if cost_per_lot <= 0:
-            return self._normalize_lot_size(config.LOT_SIZE)
+            return self._normalize_lot_size(config.LOT_SIZE, sym)
 
         raw_lots = risk_cash / cost_per_lot
 
-        # Apply user overrides if specified
         if config.MAX_LOT_OVERRIDE:
             raw_lots = min(raw_lots, config.MAX_LOT_OVERRIDE)
 
-        normalized_lots = self._normalize_lot_size(raw_lots)
+        normalized_lots = self._normalize_lot_size(raw_lots, sym)
         self.logger.info(
-            f"DYNAMIC LOT CALCULATED: Balance=${account.balance:.2f} | Risk={config.RISK_PERCENT}% (${risk_cash:.2f}) | "
-            f"SL Distance={sl_distance_points:.2f} pts | Lots={normalized_lots}"
+            f"DYNAMIC LOT ({sym}): Balance=${account.balance:.2f} | Risk={config.RISK_PERCENT}% (${risk_cash:.2f}) | "
+            f"SL Dist={sl_distance_points:.4f} | Lots={normalized_lots}"
         )
         return normalized_lots
 
-    def _normalize_lot_size(self, raw_lots: float) -> float:
+    def _normalize_lot_size(self, raw_lots: float, symbol: str = None) -> float:
         """Clamps and snaps raw lot size to broker minimum, maximum, and step size."""
-        info = mt5.symbol_info(self.symbol)
+        sym = symbol or self.symbol
+        info = mt5.symbol_info(sym)
         if not info:
             return round(raw_lots, 2)
 
@@ -308,16 +322,19 @@ class MT5Manager:
         self,
         order_type_str: str,
         lot_size: float,
-        stop_loss: float
+        stop_loss: float,
+        symbol: str = None,
+        magic: int = None
     ) -> Optional[int]:
         """
-        Executes Buy or Sell order on the active symbol.
+        Executes Buy or Sell order on the specified symbol.
         No fixed TP is specified (trailing stop captures the trend).
-        Returns the position ticket ID if successful, else None.
         """
-        tick = mt5.symbol_info_tick(self.symbol)
+        sym = symbol or self.symbol
+        magic_num = magic or config.MAGIC_NUMBER
+        tick = mt5.symbol_info_tick(sym)
         if tick is None:
-            self.logger.error(f"Cannot retrieve current tick for {self.symbol}.")
+            self.logger.error(f"Cannot retrieve current tick for {sym}.")
             return None
 
         is_buy = (order_type_str.upper() == "BUY")
@@ -325,42 +342,31 @@ class MT5Manager:
         price = tick.ask if is_buy else tick.bid
 
         # Normalize lot size according to broker volume min/step/max
-        info = mt5.symbol_info(self.symbol)
-        if info:
-            if lot_size < info.volume_min:
-                self.logger.warning(
-                    f"Configured lot size ({lot_size}) is below broker minimum ({info.volume_min}). "
-                    f"Adjusting to {info.volume_min}."
-                )
-                lot_size = info.volume_min
-            elif lot_size > info.volume_max:
-                lot_size = info.volume_max
+        info = mt5.symbol_info(sym)
+        digits = info.digits if info else 2
+        lot_size = self._normalize_lot_size(lot_size, sym)
 
-            # Snap to volume step
-            steps = round((lot_size - info.volume_min) / info.volume_step)
-            lot_size = round(info.volume_min + (steps * info.volume_step), 2)
-
-        price = round(price, self.digits)
-        stop_loss = round(stop_loss, self.digits)
+        price = round(price, digits)
+        stop_loss = round(stop_loss, digits)
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": self.symbol,
+            "symbol": sym,
             "volume": float(lot_size),
             "type": order_type,
             "price": price,
             "sl": stop_loss,
-            "tp": 0.0,  # No fixed TP as per strategy specifications
+            "tp": 0.0,
             "deviation": config.SLIPPAGE,
-            "magic": config.MAGIC_NUMBER,
-            "comment": config.ORDER_COMMENT,
+            "magic": magic_num,
+            "comment": f"{config.ORDER_COMMENT} ({sym})",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": self._get_filling_mode()
+            "type_filling": self._get_filling_mode(sym)
         }
 
         self.logger.info(
-            f"Sending {order_type_str} order on {self.symbol}: Lots={lot_size}, "
-            f"Price={price}, SL={stop_loss}, TP=None, Magic={config.MAGIC_NUMBER}"
+            f"Sending {order_type_str} order on {sym}: Lots={lot_size}, "
+            f"Price={price}, SL={stop_loss}, Magic={magic_num}"
         )
 
         result = mt5.order_send(request)
@@ -371,24 +377,27 @@ class MT5Manager:
 
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             self.logger.error(
-                f"Order execution rejected by broker! Retcode: {result.retcode}, "
+                f"Order execution rejected by broker for {sym}! Retcode: {result.retcode}, "
                 f"Comment: '{result.comment}'"
             )
             return None
 
         self.logger.info(
-            f"Order successfully filled! Ticket: #{result.order}, "
+            f"Order successfully filled on {sym}! Ticket: #{result.order}, "
             f"Executed Price: {result.price}, Volume: {result.volume}"
         )
         return result.order
 
-    def modify_position_sl(self, ticket: int, new_sl: float) -> bool:
+    def modify_position_sl(self, ticket: int, new_sl: float, symbol: str = None) -> bool:
         """Modifies the Stop Loss of an open position for trailing stop."""
-        new_sl = round(new_sl, self.digits)
+        sym = symbol or self.symbol
+        info = mt5.symbol_info(sym)
+        digits = info.digits if info else 2
+        new_sl = round(new_sl, digits)
         request = {
             "action": mt5.TRADE_ACTION_SLTP,
             "position": ticket,
-            "symbol": self.symbol,
+            "symbol": sym,
             "sl": new_sl,
             "tp": 0.0
         }
@@ -401,24 +410,28 @@ class MT5Manager:
 
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             self.logger.warning(
-                f"Failed to update SL for #{ticket} to {new_sl}. Retcode: {result.retcode}, "
+                f"Failed to update SL for #{ticket} ({sym}) to {new_sl}. Retcode: {result.retcode}, "
                 f"Comment: '{result.comment}'"
             )
             return False
 
-        self.logger.info(f"Trailing Stop updated for position #{ticket} -> New SL: {new_sl}")
+        self.logger.info(f"Trailing Stop updated for position #{ticket} ({sym}) -> New SL: {new_sl}")
         return True
 
-    def get_open_positions(self) -> List[Dict]:
+    def get_open_positions(self, symbol: str = None, magic: int = None) -> List[Dict]:
         """Returns active open positions belonging to this bot's Magic Number and Symbol."""
-        positions = mt5.positions_get(symbol=self.symbol)
+        sym = symbol or self.symbol
+        positions = mt5.positions_get(symbol=sym)
         bot_positions = []
         if positions:
             for p in positions:
-                if p.magic == config.MAGIC_NUMBER:
+                # Check magic number if provided, else check if matches any bot magic number
+                match_magic = (p.magic == magic) if magic else (p.magic in config.MAGIC_NUMBERS.values() or p.magic == config.MAGIC_NUMBER)
+                if match_magic:
                     bot_positions.append({
                         "ticket": p.ticket,
                         "time": p.time,
+                        "symbol": p.symbol,
                         "type": "BUY" if p.type == mt5.POSITION_TYPE_BUY else "SELL",
                         "volume": p.volume,
                         "price_open": p.price_open,

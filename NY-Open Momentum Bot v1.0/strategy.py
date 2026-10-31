@@ -28,11 +28,17 @@ class NYOpenMomentumStrategy:
         self,
         mt5_mgr: MT5Manager,
         recorder: TradeHistoryRecorder,
-        logger: logging.Logger
+        logger: logging.Logger,
+        symbol: str = None,
+        magic_number: int = None
     ):
         self.mt5 = mt5_mgr
         self.recorder = recorder
         self.logger = logger
+        self.symbol = symbol or mt5_mgr.symbol or "USTECm"
+        self.magic = magic_number or config.MAGIC_NUMBERS.get(self.symbol, config.MAGIC_NUMBER)
+        self.profile = config.get_pair_profile(self.symbol)
+        self.point_unit = self.profile.get("index_point_size", 1.0)
         self.ny_tz = pytz.timezone(config.TIMEZONE_STR)
 
         # State tracking variables (reset daily)
@@ -142,22 +148,21 @@ class NYOpenMomentumStrategy:
         Extracts the 09:30-09:35 M5 candle to establish the Breakout Box.
         Validates minimum range threshold using the asset profile.
         """
-        candle = self.mt5.get_m5_ny_open_candle(now_ny.date())
+        candle = self.mt5.get_m5_ny_open_candle(now_ny.date(), symbol=self.symbol)
         if candle is None:
             # Candle data might not have synced yet from broker; retry on next tick
             return
 
-        profile = config.get_pair_profile(self.mt5.symbol)
-        min_range = profile["min_range_points"]
+        min_range = self.profile["min_range_points"]
 
         self.range_high = candle["high"]
         self.range_low = candle["low"]
-        self.range_size = (self.range_high - self.range_low) / self.mt5.index_point_unit
+        self.range_size = (self.range_high - self.range_low) / self.point_unit
         self.range_calculated = True
 
         self.logger.info("*" * 65)
         self.logger.info(
-            f"NY OPEN RANGE ESTABLISHED on {self.mt5.symbol}: High={self.range_high:.4f}, "
+            f"NY OPEN RANGE ESTABLISHED on {self.symbol}: High={self.range_high:.4f}, "
             f"Low={self.range_low:.4f}, Range={self.range_size:.4f} points"
         )
 
@@ -167,12 +172,12 @@ class NYOpenMomentumStrategy:
             self.daily_halted = True
             self.logger.warning(
                 f"VOLATILITY FILTER: 5-min range ({self.range_size:.4f}) < {min_range:.4f} threshold. "
-                f"Low volatility day on {self.mt5.symbol} - NO TRADES ALLOWED TODAY."
+                f"Low volatility day on {self.symbol} - NO TRADES ALLOWED TODAY."
             )
         else:
             self.range_valid = True
             self.logger.info(
-                f"BREAKOUT BOX ARMED ({self.mt5.symbol}): Ready for {config.EXECUTION_TIMEFRAME_NAME} candle close outside "
+                f"BREAKOUT BOX ARMED ({self.symbol}): Ready for {config.EXECUTION_TIMEFRAME_NAME} candle close outside "
                 f"[{self.range_low:.4f} - {self.range_high:.4f}]"
             )
         self.logger.info("*" * 65)
@@ -182,7 +187,7 @@ class NYOpenMomentumStrategy:
         Inspects the most recent completed candle close.
         Triggers entry strictly on candle close breaking above/below the 5-min range.
         """
-        closed_candle = self.mt5.get_latest_closed_candle(config.EXECUTION_TIMEFRAME_NAME)
+        closed_candle = self.mt5.get_latest_closed_candle(config.EXECUTION_TIMEFRAME_NAME, symbol=self.symbol)
         if closed_candle is None:
             return
 
@@ -199,38 +204,39 @@ class NYOpenMomentumStrategy:
         close_price = closed_candle["close"]
         self.last_evaluated_candle_time = candle_close_time
 
-        profile = config.get_pair_profile(self.mt5.symbol)
-        sl_buffer = profile["sl_buffer_points"]
+        sl_buffer = self.profile["sl_buffer_points"]
 
         # Check Long Breakout (Close strictly ABOVE 5-min Range High)
         if close_price > self.range_high:
             self.logger.info(
-                f"LONG ENTRY TRIGGERED on {self.mt5.symbol}: {config.EXECUTION_TIMEFRAME_NAME} candle closed at {close_price} "
+                f"LONG ENTRY TRIGGERED on {self.symbol}: {config.EXECUTION_TIMEFRAME_NAME} candle closed at {close_price} "
                 f"(ABOVE Range High {self.range_high})"
             )
             # Stop Loss: Opposite side of box (Range Low) minus buffer
-            sl = self.range_low - (sl_buffer * self.mt5.index_point_unit)
+            sl = self.range_low - (sl_buffer * self.point_unit)
             self.execute_entry("BUY", sl, close_price)
 
         # Check Short Breakout (Close strictly BELOW 5-min Range Low)
         elif close_price < self.range_low:
             self.logger.info(
-                f"SHORT ENTRY TRIGGERED on {self.mt5.symbol}: {config.EXECUTION_TIMEFRAME_NAME} candle closed at {close_price} "
+                f"SHORT ENTRY TRIGGERED on {self.symbol}: {config.EXECUTION_TIMEFRAME_NAME} candle closed at {close_price} "
                 f"(BELOW Range Low {self.range_low})"
             )
             # Stop Loss: Opposite side of box (Range High) plus buffer
-            sl = self.range_high + (sl_buffer * self.mt5.index_point_unit)
+            sl = self.range_high + (sl_buffer * self.point_unit)
             self.execute_entry("SELL", sl, close_price)
 
     def execute_entry(self, direction: str, initial_sl: float, signal_price: float):
         """Calculates lot size (dynamic or fixed) and sends market order to MT5."""
-        sl_distance_points = abs(signal_price - initial_sl) / self.mt5.index_point_unit
-        calculated_lots = self.mt5.calculate_lot_size(sl_distance_points)
+        sl_distance_points = abs(signal_price - initial_sl) / self.point_unit
+        calculated_lots = self.mt5.calculate_lot_size(sl_distance_points, symbol=self.symbol)
 
         ticket = self.mt5.open_market_order(
             order_type_str=direction,
             lot_size=calculated_lots,
-            stop_loss=initial_sl
+            stop_loss=initial_sl,
+            symbol=self.symbol,
+            magic=self.magic
         )
 
         if ticket is not None:
@@ -257,7 +263,7 @@ class NYOpenMomentumStrategy:
         Monitors open positions, manages trailing stop logic,
         and records exits to CSV when a trade closes.
         """
-        open_positions = self.mt5.get_open_positions()
+        open_positions = self.mt5.get_open_positions(symbol=self.symbol, magic=self.magic)
 
         # If we previously had an active ticket, but it's no longer open -> position closed!
         if self.active_ticket is not None:
@@ -282,11 +288,11 @@ class NYOpenMomentumStrategy:
     def apply_trailing_stop(self, pos: Dict):
         """
         Executes trailing stop rules:
-        - Trigger: Trade reaches +50 points profit.
-        - Distance: Trail 30 points behind current price.
-        - Step: Update SL every 5 points as price moves in favor.
+        - Trigger: Trade reaches trail_trigger profit.
+        - Distance: Trail trail_distance behind current price.
+        - Step: Update SL every trail_step points as price moves in favor.
         """
-        tick = self.mt5.get_current_tick()
+        tick = self.mt5.get_current_tick(symbol=self.symbol)
         if tick is None:
             return
 
@@ -297,14 +303,13 @@ class NYOpenMomentumStrategy:
 
         # Calculate profit in index points
         if is_buy:
-            profit_points = (current_price - entry) / self.mt5.index_point_unit
+            profit_points = (current_price - entry) / self.point_unit
         else:
-            profit_points = (entry - current_price) / self.mt5.index_point_unit
+            profit_points = (entry - current_price) / self.point_unit
 
-        profile = config.get_pair_profile(self.mt5.symbol)
-        trail_trigger = profile["trailing_trigger_points"]
-        trail_distance = profile["trailing_distance_points"]
-        trail_step = profile["trailing_step_points"]
+        trail_trigger = self.profile["trailing_trigger_points"]
+        trail_distance = self.profile["trailing_distance_points"]
+        trail_step = self.profile["trailing_step_points"]
 
         # Check activation threshold
         if profit_points >= trail_trigger:
@@ -312,30 +317,30 @@ class NYOpenMomentumStrategy:
                 self.trailing_activated = True
                 self.last_trailing_update_price = current_price
                 self.logger.info(
-                    f"TRAILING STOP ACTIVATED on #{pos['ticket']} ({self.mt5.symbol})! "
+                    f"TRAILING STOP ACTIVATED on #{pos['ticket']} ({self.symbol})! "
                     f"Profit: +{profit_points:.4f} >= {trail_trigger:.4f} threshold."
                 )
 
             # Compute candidate new Stop Loss
             if is_buy:
-                proposed_sl = current_price - (trail_distance * self.mt5.index_point_unit)
+                proposed_sl = current_price - (trail_distance * self.point_unit)
                 # Check step increment
-                if proposed_sl > (self.current_sl + (trail_step * self.mt5.index_point_unit)):
-                    if self.mt5.modify_position_sl(pos["ticket"], proposed_sl):
+                if proposed_sl > (self.current_sl + (trail_step * self.point_unit)):
+                    if self.mt5.modify_position_sl(pos["ticket"], proposed_sl, symbol=self.symbol):
                         self.current_sl = proposed_sl
                         self.last_trailing_update_price = current_price
             else:
-                proposed_sl = current_price + (trail_distance * self.mt5.index_point_unit)
+                proposed_sl = current_price + (trail_distance * self.point_unit)
                 # Check step decrement for Sell
-                if proposed_sl < (self.current_sl - (trail_step * self.mt5.index_point_unit)):
-                    if self.mt5.modify_position_sl(pos["ticket"], proposed_sl):
+                if proposed_sl < (self.current_sl - (trail_step * self.point_unit)):
+                    if self.mt5.modify_position_sl(pos["ticket"], proposed_sl, symbol=self.symbol):
                         self.current_sl = proposed_sl
                         self.last_trailing_update_price = current_price
 
     def handle_position_closure(self, now_ny: datetime):
         """Processes trade outcome, updates daily P&L, checks daily loss limit, and writes CSV."""
         closed_ticket = self.active_ticket
-        self.logger.info(f"Position #{closed_ticket} has closed.")
+        self.logger.info(f"Position #{closed_ticket} ({self.symbol}) has closed.")
 
         # Retrieve deals from MT5 history to get exact exit price and profit
         deals = self.mt5.get_daily_deals(now_ny.date())
@@ -348,22 +353,21 @@ class NYOpenMomentumStrategy:
             exit_price = deal["price"]
             profit_currency = deal["profit"] + deal.get("fee", 0.0) + deal.get("swap", 0.0)
         else:
-            # Approximate from current price if deal history is pending synchronization
-            tick = self.mt5.get_current_tick()
+            tick = self.mt5.get_current_tick(symbol=self.symbol)
             exit_price = tick[0] if tick else self.entry_price
 
         # Calculate realized points P&L
         if self.position_direction == "BUY":
-            pnl_points = (exit_price - self.entry_price) / self.mt5.index_point_unit
+            pnl_points = (exit_price - self.entry_price) / self.point_unit
         else:
-            pnl_points = (self.entry_price - exit_price) / self.mt5.index_point_unit
+            pnl_points = (self.entry_price - exit_price) / self.point_unit
 
         exit_reason = "Trailing Stop" if self.trailing_activated else "Initial Stop Loss"
 
         self.logger.info("=" * 65)
         self.logger.info(
-            f"TRADE RESULT #{closed_ticket}: {self.position_direction} | Entry: {self.entry_price:.2f} | "
-            f"Exit: {exit_price:.2f} | Points P&L: {pnl_points:+.2f} pts | Currency: ${profit_currency:+.2f}"
+            f"TRADE RESULT #{closed_ticket} ({self.symbol}): {self.position_direction} | Entry: {self.entry_price:.4f} | "
+            f"Exit: {exit_price:.4f} | Points P&L: {pnl_points:+.2f} | Currency: ${profit_currency:+.2f}"
         )
         self.logger.info(f"Exit Reason: {exit_reason}")
         self.logger.info("=" * 65)
@@ -372,7 +376,7 @@ class NYOpenMomentumStrategy:
         self.recorder.record_trade(
             trade_id=closed_ticket,
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            symbol=self.mt5.symbol,
+            symbol=self.symbol,
             action=self.position_direction,
             lots=getattr(self, "active_lots", config.LOT_SIZE),
             entry_price=self.entry_price,
@@ -382,7 +386,7 @@ class NYOpenMomentumStrategy:
             pnl_points=pnl_points,
             pnl_currency=profit_currency,
             exit_reason=exit_reason,
-            magic=config.MAGIC_NUMBER
+            magic=self.magic
         )
 
         # Track daily loss in points
@@ -414,10 +418,46 @@ class NYOpenMomentumStrategy:
         """Displays formatted daily P&L and status in the console."""
         currency_pnl, deal_count = self.mt5.calculate_daily_pnl(now_ny.date())
         self.logger.info("-" * 65)
-        self.logger.info(f"DAILY P&L SUMMARY [{now_ny.strftime('%Y-%m-%d ET')}]:")
+        self.logger.info(f"DAILY P&L SUMMARY [{now_ny.strftime('%Y-%m-%d ET')} - {self.symbol}]:")
         self.logger.info(f"  Closed Trades Today: {deal_count}")
         self.logger.info(f"  Realized Points Loss: -{self.daily_loss_points:.2f} pts")
         self.logger.info(f"  Net Currency Profit: ${currency_pnl:+.2f}")
         self.logger.info(f"  Trading Allowed Remainder of Today: {'NO' if self.daily_halted else 'YES'}")
         self.logger.info("-" * 65)
+
+
+class PortfolioStrategyManager:
+    """Coordinates simultaneous execution across multiple portfolio pairs."""
+
+    def __init__(
+        self,
+        mt5_mgr: MT5Manager,
+        recorder: TradeHistoryRecorder,
+        logger: logging.Logger,
+        pairs: list = None
+    ):
+        self.mt5 = mt5_mgr
+        self.recorder = recorder
+        self.logger = logger
+        self.pairs = pairs or config.ACTIVE_PAIRS
+        self.strategies = {}
+
+        for p in self.pairs:
+            magic = config.MAGIC_NUMBERS.get(p, config.MAGIC_NUMBER)
+            self.strategies[p] = NYOpenMomentumStrategy(
+                mt5_mgr=self.mt5,
+                recorder=self.recorder,
+                logger=self.logger,
+                symbol=p,
+                magic_number=magic
+            )
+            self.logger.info(f"Initialized strategy instance for {p} (Magic: {magic})")
+
+    def on_tick(self):
+        """Executes on_tick on all managed symbol strategies."""
+        for sym, strat in self.strategies.items():
+            try:
+                strat.on_tick()
+            except Exception as e:
+                self.logger.error(f"Error executing on_tick for {sym}: {e}")
 

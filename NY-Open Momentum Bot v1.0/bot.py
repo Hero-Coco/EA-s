@@ -22,7 +22,7 @@ import pytz
 import config
 from trade_logger import setup_logger, TradeHistoryRecorder
 from mt5_manager import MT5Manager
-from strategy import NYOpenMomentumStrategy
+from strategy import NYOpenMomentumStrategy, PortfolioStrategyManager
 from backtest import NYOpenBacktester
 import check_mt5_connection
 
@@ -53,12 +53,14 @@ class BotController:
                 now_ny = datetime.now(ny_tz)
                 if now_ny.minute % 5 == 0 and now_ny.minute != last_heartbeat_min:
                     last_heartbeat_min = now_ny.minute
-                    tick = self.mt5_mgr.get_current_tick()
-                    tick_str = f"Bid: {tick[0]:.2f} / Ask: {tick[1]:.2f}" if tick else "N/A"
+                    ticks_summary = []
+                    for p in self.active_pairs:
+                        tick = self.mt5_mgr.get_current_tick(symbol=p)
+                        t_str = f"{tick[0]:.2f}/{tick[1]:.2f}" if tick else "N/A"
+                        ticks_summary.append(f"{p}:{t_str}")
                     self.logger.info(
                         f"[HEARTBEAT] NY Time: {now_ny.strftime('%Y-%m-%d %H:%M:%S ET')} | "
-                        f"{self.mt5_mgr.symbol} ({tick_str}) | "
-                        f"Trades Today: {self.strategy.trades_count_today}/{config.MAX_TRADES_PER_DAY}"
+                        f"Active Pairs: {' | '.join(ticks_summary)}"
                     )
 
                 # Sleep responsive to stop_event
@@ -69,18 +71,19 @@ class BotController:
         finally:
             self.logger.info("Live worker loop ended.")
 
-    def start_live_bot(self):
+    def start_live_bot(self, pairs: list = None):
         """Starts the live trading bot with interactive stop listening."""
-        print("\n" + "=" * 75)
-        print("            STARTING NY-OPEN MOMENTUM BOT v1.0 (LIVE)")
-        print("=" * 75)
-        print(f" Symbol               : {config.FORCED_SYMBOL or 'Auto-Detect'}")
+        self.active_pairs = pairs or config.ACTIVE_PAIRS
+        print("\n" + "=" * 78)
+        print("          STARTING NY-OPEN MOMENTUM BOT v1.0 (PORTFOLIO LIVE)")
+        print("=" * 78)
+        print(f" Active Pairs ({len(self.active_pairs)})     : {', '.join(self.active_pairs)}")
         print(f" Execution Timeframe  : {config.EXECUTION_TIMEFRAME_NAME} Candle Close")
         print(f" NY Range Window      : 09:30 - 09:35 ET")
-        lot_info = f"Dynamic ({config.RISK_PERCENT}% Risk of Balance)" if config.USE_DYNAMIC_LOT else f"Fixed ({config.LOT_SIZE} lots)"
+        lot_info = f"Dynamic ({config.RISK_PERCENT}% Risk of Balance per Trade)" if config.USE_DYNAMIC_LOT else f"Fixed ({config.LOT_SIZE} lots)"
         print(f" Position Sizing      : {lot_info}")
-        print("=" * 75)
-        print(">>> Bot is RUNNING! Type 'stop' or 'q' and press [ENTER] to STOP.")
+        print("=" * 78)
+        print(">>> Bot is RUNNING across all pairs! Type 'stop' or 'q' and press [ENTER] to STOP.")
         print(">>> (Or press Ctrl+C anytime to shutdown safely.)\n")
 
         self.mt5_mgr = MT5Manager(self.logger)
@@ -89,7 +92,7 @@ class BotController:
             return
 
         recorder = TradeHistoryRecorder(config.CSV_HISTORY_PATH, self.logger)
-        self.strategy = NYOpenMomentumStrategy(self.mt5_mgr, recorder, self.logger)
+        self.strategy = PortfolioStrategyManager(self.mt5_mgr, recorder, self.logger, pairs=self.active_pairs)
 
         self.stop_event.clear()
         self.bot_thread = threading.Thread(target=self._live_worker, daemon=True)
@@ -146,15 +149,16 @@ class BotController:
 
 def display_menu():
     """Prints the main interactive control panel."""
-    print("=" * 70)
-    print("           NY-OPEN MOMENTUM BOT v1.0 - CONTROL PANEL")
-    print("=" * 70)
-    print(" [1] Start Live Trading Bot  (Type 'stop' or 'q' to stop cleanly)")
-    print(" [2] Run Historical Backtest (Analyzes past 3+ months of data)")
-    print(" [3] Test MT5 Connection & Account Status")
-    print(" [4] View Live Trade History & Results")
-    print(" [5] Exit")
-    print("=" * 70)
+    print("=" * 75)
+    print("           NY-OPEN MOMENTUM BOT v1.0 - PORTFOLIO CONTROL PANEL")
+    print("=" * 75)
+    print(" [1] Start Live Trading on ALL 4 Pairs (USTEC, Gold, BTC, EURUSD)")
+    print(" [2] Start Live Trading on a SINGLE Pair (Select one)")
+    print(" [3] Run Historical Backtest (Single Pair or All 4 Pairs Comparison)")
+    print(" [4] Test MT5 Connection & Account Status")
+    print(" [5] View Live Trade History & Results")
+    print(" [6] Exit")
+    print("=" * 75)
 
 
 def main():
@@ -164,7 +168,7 @@ def main():
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
         if arg in ["--live", "-l", "live", "start"]:
-            controller.start_live_bot()
+            controller.start_live_bot(config.ACTIVE_PAIRS)
             return
         elif arg in ["--backtest", "-b", "backtest"]:
             bars = int(sys.argv[2]) if len(sys.argv) > 2 else 20000
@@ -178,10 +182,23 @@ def main():
     while True:
         display_menu()
         try:
-            choice = input("Enter choice [1-5]: ").strip()
+            choice = input("Enter choice [1-6]: ").strip()
             if choice == "1":
-                controller.start_live_bot()
+                # Start All 4 Pairs simultaneously
+                controller.start_live_bot(config.ACTIVE_PAIRS)
             elif choice == "2":
+                print("\nAvailable Pairs:")
+                for i, p in enumerate(config.ACTIVE_PAIRS, 1):
+                    print(f"  [{i}] {p} ({config.PAIR_PROFILES[p]['description']})")
+                p_choice = input(f"Select pair number [1-{len(config.ACTIVE_PAIRS)}]: ").strip()
+                if p_choice.isdigit() and 1 <= int(p_choice) <= len(config.ACTIVE_PAIRS):
+                    selected = [config.ACTIVE_PAIRS[int(p_choice) - 1]]
+                    controller.start_live_bot(selected)
+                else:
+                    print("[!] Invalid selection, defaulting to all pairs.")
+                    controller.start_live_bot(config.ACTIVE_PAIRS)
+            elif choice == "3":
+                sub = input("Backtest [1] All 4 Pairs Comparison or [2] Single Pair? [Default: 1]: ").strip()
                 dep_input = input("Enter starting deposit in USD [Default: 1000]: ").strip()
                 deposit = float(dep_input) if dep_input.replace(".", "", 1).isdigit() else 1000.0
                 mode_input = input("Use Dynamic Lot sizing? (y/n) [Default: y]: ").strip().lower()
@@ -190,24 +207,30 @@ def main():
                 if use_dynamic:
                     risk_input = input("Enter Risk % per trade [Default: 1.0]: ").strip()
                     risk = float(risk_input) if risk_input.replace(".", "", 1).isdigit() else 1.0
-                bars_input = input("Enter number of M5 bars to backtest [Default: 20000 ~ 3 months]: ").strip()
+                bars_input = input("Enter number of M5 bars [Default: 20000 ~ 3 months]: ").strip()
                 bars = int(bars_input) if bars_input.isdigit() else 20000
-                engine = NYOpenBacktester(
-                    lookback_bars=bars,
-                    initial_deposit=deposit,
-                    use_dynamic_lot=use_dynamic,
-                    risk_percent=risk
-                )
-                engine.run_backtest()
-            elif choice == "3":
-                controller.check_connection_action()
+
+                if sub == "2":
+                    print("\nSelect Pair to Backtest:")
+                    for i, p in enumerate(config.ACTIVE_PAIRS, 1):
+                        print(f"  [{i}] {p}")
+                    p_sel = input("Choice [1-4]: ").strip()
+                    pair_sym = config.ACTIVE_PAIRS[int(p_sel) - 1] if p_sel.isdigit() and 1 <= int(p_sel) <= 4 else "USTECm"
+                    eng = NYOpenBacktester(symbol=pair_sym, lookback_bars=bars, initial_deposit=deposit, use_dynamic_lot=use_dynamic, risk_percent=risk)
+                    eng.run_backtest()
+                else:
+                    for p in config.ACTIVE_PAIRS:
+                        eng = NYOpenBacktester(symbol=p, lookback_bars=bars, initial_deposit=deposit, use_dynamic_lot=use_dynamic, risk_percent=risk)
+                        eng.run_backtest()
             elif choice == "4":
-                controller.view_history_action()
+                controller.check_connection_action()
             elif choice == "5":
+                controller.view_history_action()
+            elif choice == "6":
                 print("Exiting NY-Open Momentum Bot. Goodbye!")
                 break
             else:
-                print("[!] Invalid choice. Please enter a number between 1 and 5.\n")
+                print("[!] Invalid choice. Please enter a number between 1 and 6.\n")
         except (KeyboardInterrupt, EOFError):
             print("\nExiting NY-Open Momentum Bot. Goodbye!")
             break
