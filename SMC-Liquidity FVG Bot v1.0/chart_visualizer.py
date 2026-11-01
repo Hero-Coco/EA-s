@@ -69,9 +69,13 @@ def plot_smc_setup(
         )
         ax.add_patch(rect)
 
-    # 1. Plot Swing Levels
+    # 1. Plot Swing Levels & Fibonacci Equilibrium
     ax.axhline(swing_high, color='#f59e0b', linestyle='--', linewidth=1.2, label=f'Swing High ({swing_high:.2f})', zorder=4)
     ax.axhline(swing_low, color='#38bdf8', linestyle='--', linewidth=1.2, label=f'Swing Low ({swing_low:.2f})', zorder=4)
+
+    # Fibonacci 0.50 Discount / Premium Divider (Piece 4 from Video)
+    fib_50 = swing_low + 0.5 * (swing_high - swing_low)
+    ax.axhline(fib_50, color='#c084fc', linestyle='-.', linewidth=1.1, label=f'Fib 0.50 Equilibrium ({fib_50:.2f})', zorder=4)
 
     # 2. Plot FVG Zone (Shaded Rectangle)
     fvg_color = '#10b981' if direction == "BUY" else '#ef4444'

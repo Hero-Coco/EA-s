@@ -2,12 +2,13 @@
 =============================================================================
 SMC-Liquidity FVG Bot v1.0 - SMC Detection Engine
 =============================================================================
-Detailed Smart Money Concepts (SMC) implementation:
+Detailed Smart Money Concepts (SMC) implementation (4/4 A-Grade Setup):
 1. Swing High & Swing Low identification over rolling lookback (20 candles)
 2. Liquidity Sweep Detection (wick breaks swing extreme, closes back inside)
 3. Market Structure Shift (MSS) confirmation
 4. Fair Value Gap (FVG) calculation (3-candle imbalance with min size filter)
-5. FVG Mitigation & Engulfing Candlestick Trigger
+5. Fibonacci Golden Pocket (0.50 - 0.786) Retracement Filter
+6. FVG Mitigation & Engulfing Candlestick Trigger
 =============================================================================
 """
 
@@ -127,6 +128,48 @@ def detect_fvg_at_bar(
     return None
 
 
+def is_in_fib_golden_pocket(
+    direction: str,
+    price: float,
+    origin_level: float,
+    impulse_extreme: float,
+    min_fib: float = 0.50,
+    max_fib: float = 0.786
+) -> bool:
+    """
+    Concept 4 (from Video): Fibonacci Golden Pocket Retracement
+    Ensures trade is taken at a DISCOUNT (for Buy) or PREMIUM (for Sell),
+    rather than buying at expensive prices above 0.50.
+
+    - For BUY:
+      Leg from origin_level (low) to impulse_extreme (high).
+      Retracement distance = impulse_extreme - price.
+      Ratio = (impulse_extreme - price) / (impulse_extreme - origin_level).
+      Must be >= 0.50 (i.e. at or below the 50% equilibrium line).
+
+    - For SELL:
+      Leg from origin_level (high) to impulse_extreme (low).
+      Retracement distance = price - impulse_extreme.
+      Ratio = (price - impulse_extreme) / (origin_level - impulse_extreme).
+      Must be >= 0.50 (i.e. at or above the 50% equilibrium line).
+    """
+    total_range = abs(impulse_extreme - origin_level)
+    if total_range <= 0:
+        return False
+
+    if direction.upper() == "BUY":
+        retrace = impulse_extreme - price
+        ratio = retrace / total_range
+        return min_fib <= ratio <= max_fib
+
+    elif direction.upper() == "SELL":
+        retrace = price - impulse_extreme
+        ratio = retrace / total_range
+        return min_fib <= ratio <= max_fib
+
+    return False
+
+
 def is_engulfing_inside_fvg(
     df: pd.DataFrame,
     idx: int,
@@ -156,22 +199,17 @@ def is_engulfing_inside_fvg(
         return False
 
     if fvg.direction == "BULLISH":
-        # Current candle is bullish
         if curr['close'] > curr['open']:
             curr_body = curr['close'] - curr['open']
             prev_body = abs(prev['close'] - prev['open'])
-            # Engulfs previous candle body and closes above previous open/high
             if curr['close'] >= max(prev['open'], prev['close']) and curr_body >= prev_body:
                 return True
 
     elif fvg.direction == "BEARISH":
-        # Current candle is bearish
         if curr['close'] < curr['open']:
             curr_body = curr['open'] - curr['close']
             prev_body = abs(prev['close'] - prev['open'])
-            # Engulfs previous candle body and closes below previous open/low
             if curr['close'] <= min(prev['open'], prev['close']) and curr_body >= prev_body:
                 return True
 
     return False
-

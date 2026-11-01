@@ -24,6 +24,7 @@ from smc_detector import (
     detect_liquidity_sweep,
     detect_fvg_at_bar,
     is_engulfing_inside_fvg,
+    is_in_fib_golden_pocket,
     FVGZone
 )
 from trade_logger import setup_logger
@@ -75,6 +76,7 @@ class SMCBacktester:
         trade_entry = 0.0
         trade_sl = 0.0
         trade_tp = 0.0
+        trade_lot = lot_size
         trade_entry_time = None
         trade_entry_idx = 0
         trade_fvg_top = 0.0
@@ -118,11 +120,12 @@ class SMCBacktester:
                         closed = True
 
                 if closed:
-                    pnl = (exit_price - trade_entry) * contract_size * lot_size if trade_dir == "BUY" else (trade_entry - exit_price) * contract_size * lot_size
+                    pnl = (exit_price - trade_entry) * contract_size * trade_lot if trade_dir == "BUY" else (trade_entry - exit_price) * contract_size * trade_lot
                     running_balance += pnl
                     trades.append({
                         "Symbol": self.symbol,
                         "Direction": trade_dir,
+                        "Lot": trade_lot,
                         "EntryTime": trade_entry_time.strftime("%Y-%m-%d %H:%M") if hasattr(trade_entry_time, 'strftime') else str(trade_entry_time),
                         "EntryPrice": round(trade_entry, 2),
                         "SL": round(trade_sl, 2),
@@ -185,7 +188,23 @@ class SMCBacktester:
                         tp_p = max(mss_high, entry_p + (risk * 1.5))
                         reward = tp_p - entry_p
 
+                        # Piece 4 (from Video): Fibonacci Golden Pocket (>= 50% discount) Retracement Filter
+                        if config.USE_FIBONACCI_FILTER:
+                            if not is_in_fib_golden_pocket("BUY", entry_p, s_sl, mss_high, config.FIB_MIN_RETRACEMENT, config.FIB_MAX_RETRACEMENT):
+                                continue
+
                         if reward / risk >= min_rr:
+                            if config.USE_DYNAMIC_LOT:
+                                risk_cash = running_balance * (config.RISK_PERCENT / 100.0)
+                                raw_lot = risk_cash / (risk * contract_size)
+                                vol_min = sym_info.volume_min if sym_info else 0.01
+                                vol_max = sym_info.volume_max if sym_info else 100.0
+                                vol_step = sym_info.volume_step if sym_info else 0.01
+                                steps = round((raw_lot - vol_min) / vol_step)
+                                trade_lot = max(vol_min, min(vol_max, round(vol_min + (steps * vol_step), 2)))
+                            else:
+                                trade_lot = lot_size
+
                             in_trade = True
                             trade_dir = "BUY"
                             trade_entry = entry_p
@@ -249,7 +268,23 @@ class SMCBacktester:
                         tp_p = min(mss_low, entry_p - (risk * 1.5))
                         reward = entry_p - tp_p
 
+                        # Piece 4 (from Video): Fibonacci Golden Pocket (>= 50% premium) Retracement Filter
+                        if config.USE_FIBONACCI_FILTER:
+                            if not is_in_fib_golden_pocket("SELL", entry_p, s_sh, mss_low, config.FIB_MIN_RETRACEMENT, config.FIB_MAX_RETRACEMENT):
+                                continue
+
                         if reward / risk >= min_rr:
+                            if config.USE_DYNAMIC_LOT:
+                                risk_cash = running_balance * (config.RISK_PERCENT / 100.0)
+                                raw_lot = risk_cash / (risk * contract_size)
+                                vol_min = sym_info.volume_min if sym_info else 0.01
+                                vol_max = sym_info.volume_max if sym_info else 100.0
+                                vol_step = sym_info.volume_step if sym_info else 0.01
+                                steps = round((raw_lot - vol_min) / vol_step)
+                                trade_lot = max(vol_min, min(vol_max, round(vol_min + (steps * vol_step), 2)))
+                            else:
+                                trade_lot = lot_size
+
                             in_trade = True
                             trade_dir = "SELL"
                             trade_entry = entry_p

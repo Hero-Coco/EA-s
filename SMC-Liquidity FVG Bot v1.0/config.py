@@ -27,8 +27,10 @@ TIMEFRAME_NAME = "M5"
 # Swing High / Swing Low Lookback Period
 SWING_LOOKBACK = 20
 
-# Risk Management
-DEFAULT_LOT = 0.1              # Default position size (0.1 lots)
+# Risk Management & Dynamic Lot Sizing
+USE_DYNAMIC_LOT = True         # Automatically scales lot size based on balance and SL distance
+RISK_PERCENT = 1.0             # Risk 1.0% of account balance per trade
+DEFAULT_LOT = 0.1              # Fallback lot size if balance unavailable
 MAX_TRADES_PER_DAY = 2         # Strict risk rule: Max 2 trades per day per asset
 MAX_ACTIVE_TRADES_PER_PAIR = 1 # Only 1 open position at a time per pair
 
@@ -56,6 +58,12 @@ CANDIDATE_SYMBOLS = {
 }
 
 ACTIVE_TARGETS = ["NIFTY", "XAUUSD", "BTCUSD"]
+
+# 4/4 A-Grade Setup: Fibonacci Golden Pocket Filter (from Video)
+USE_FIBONACCI_FILTER = True    # Piece 4: Price must retrace into 0.50 - 0.75 Golden Pocket
+FIB_MIN_RETRACEMENT = 0.50     # Equilibrium boundary (must be >= 50% discount for BUY, >= 50% premium for SELL)
+FIB_GOLDEN_POCKET_TOP = 0.618  # Golden ratio level
+FIB_MAX_RETRACEMENT = 0.786    # Deep discount boundary
 
 # Per-pair asset specifications & SMC thresholds
 PAIR_PROFILES = {

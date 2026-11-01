@@ -153,6 +153,45 @@ class MT5Manager:
                 return pos
         return None
 
+    def calculate_dynamic_lot(self, symbol: str, sl_distance: float) -> float:
+        """
+        Calculates dynamic lot size based on account balance and risk percentage.
+        Risk Amount = Balance * (RISK_PERCENT / 100)
+        Lot Size = Risk Amount / (SL Distance * Contract Size)
+        """
+        account = mt5.account_info()
+        if account is None or account.balance <= 0:
+            self.logger.warning("Could not read account balance. Falling back to default lot size.")
+            return self.normalize_volume(symbol, config.DEFAULT_LOT)
+
+        risk_cash = account.balance * (config.RISK_PERCENT / 100.0)
+        sym_info = self.symbol_infos.get(symbol) or mt5.symbol_info(symbol)
+        if sym_info is None or sl_distance <= 0:
+            return self.normalize_volume(symbol, config.DEFAULT_LOT)
+
+        contract_size = sym_info.trade_contract_size if sym_info.trade_contract_size > 0 else 1.0
+
+        # Point value in account currency
+        point_usd = 1.0
+        if sym_info.trade_tick_size > 0 and sym_info.trade_tick_value_profit > 0:
+            ticks_per_point = 1.0 / sym_info.trade_tick_size
+            point_usd = ticks_per_point * sym_info.trade_tick_value_profit
+            cost_per_lot = (sl_distance / sym_info.point) * point_usd if sym_info.point > 0 else sl_distance * contract_size
+        else:
+            cost_per_lot = sl_distance * contract_size
+
+        if cost_per_lot <= 0:
+            return self.normalize_volume(symbol, config.DEFAULT_LOT)
+
+        raw_lots = risk_cash / cost_per_lot
+        normalized = self.normalize_volume(symbol, raw_lots)
+
+        self.logger.info(
+            f"DYNAMIC LOT [{symbol}]: Balance=${account.balance:.2f} | Risk={config.RISK_PERCENT}% (${risk_cash:.2f}) | "
+            f"SL Dist={sl_distance:.2f} | Calculated Lots={normalized}"
+        )
+        return normalized
+
     def place_smc_order(
         self,
         symbol: str,

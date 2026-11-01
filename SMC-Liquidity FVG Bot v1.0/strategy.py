@@ -22,6 +22,7 @@ from smc_detector import (
     detect_liquidity_sweep,
     detect_fvg_at_bar,
     is_engulfing_inside_fvg,
+    is_in_fib_golden_pocket,
     FVGZone,
     SMCCandidate
 )
@@ -147,13 +148,19 @@ class SMCLiquidityStrategy:
                     tp_price = max(mss_high, entry_price + (risk * 1.5))
                     reward = tp_price - entry_price
 
+                    # Piece 4 (from Video): Fibonacci Golden Pocket (0.50 - 0.786) Retracement Filter
+                    if config.USE_FIBONACCI_FILTER:
+                        if not is_in_fib_golden_pocket("BUY", entry_price, sweep_level, mss_high, config.FIB_MIN_RETRACEMENT, config.FIB_MAX_RETRACEMENT):
+                            continue
+
                     if reward / risk >= min_rr:
                         self.logger.info("=" * 70)
-                        self.logger.info(f"[{self.target_name}] SMC BULLISH SETUP CONFIRMED!")
+                        self.logger.info(f"[{self.target_name}] SMC 4/4 A-GRADE BULLISH SETUP CONFIRMED!")
                         self.logger.info(f" 1. Liquidity Sweep at bar #{i} below {sweep_level:.2f}")
                         self.logger.info(f" 2. MSS confirmed at bar #{mss_bar} above {mss_target:.2f}")
                         self.logger.info(f" 3. Bullish FVG: [{active_fvg.bottom:.2f} - {active_fvg.top:.2f}] (Size: {active_fvg.size:.2f} pts)")
-                        self.logger.info(f" 4. Bullish Engulfing entry at {entry_price:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} (R:R {reward/risk:.2f})")
+                        self.logger.info(f" 4. Fibonacci Golden Pocket (>= 50% discount) confirmed")
+                        self.logger.info(f" -> Bullish Engulfing entry at {entry_price:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} (R:R {reward/risk:.2f})")
                         self.logger.info("=" * 70)
 
                         self._execute_order(
@@ -210,13 +217,19 @@ class SMCLiquidityStrategy:
                     tp_price = min(mss_low, entry_price - (risk * 1.5))
                     reward = entry_price - tp_price
 
+                    # Piece 4 (from Video): Fibonacci Golden Pocket (0.50 - 0.786) Retracement Filter
+                    if config.USE_FIBONACCI_FILTER:
+                        if not is_in_fib_golden_pocket("SELL", entry_price, sweep_level, mss_low, config.FIB_MIN_RETRACEMENT, config.FIB_MAX_RETRACEMENT):
+                            continue
+
                     if reward / risk >= min_rr:
                         self.logger.info("=" * 70)
-                        self.logger.info(f"[{self.target_name}] SMC BEARISH SETUP CONFIRMED!")
+                        self.logger.info(f"[{self.target_name}] SMC 4/4 A-GRADE BEARISH SETUP CONFIRMED!")
                         self.logger.info(f" 1. Liquidity Sweep at bar #{i} above {sweep_level:.2f}")
                         self.logger.info(f" 2. MSS confirmed at bar #{mss_bar} below {mss_target:.2f}")
                         self.logger.info(f" 3. Bearish FVG: [{active_fvg.bottom:.2f} - {active_fvg.top:.2f}] (Size: {active_fvg.size:.2f} pts)")
-                        self.logger.info(f" 4. Bearish Engulfing entry at {entry_price:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} (R:R {reward/risk:.2f})")
+                        self.logger.info(f" 4. Fibonacci Golden Pocket (>= 50% premium) confirmed")
+                        self.logger.info(f" -> Bearish Engulfing entry at {entry_price:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} (R:R {reward/risk:.2f})")
                         self.logger.info("=" * 70)
 
                         self._execute_order(
@@ -242,8 +255,13 @@ class SMCLiquidityStrategy:
         sl: float,
         df_window: pd.DataFrame
     ):
-        """Sends order to MT5 and generates visual debug chart."""
-        lot_size = self.profile.get("lot_size", config.DEFAULT_LOT)
+        """Sends order to MT5 with dynamic lot size and generates visual debug chart."""
+        sl_dist = abs(entry_price - sl_price)
+        if config.USE_DYNAMIC_LOT:
+            lot_size = self.mt5_mgr.calculate_dynamic_lot(self.symbol, sl_dist)
+        else:
+            lot_size = self.profile.get("lot_size", config.DEFAULT_LOT)
+
         res = self.mt5_mgr.place_smc_order(
             symbol=self.symbol,
             direction=direction,
