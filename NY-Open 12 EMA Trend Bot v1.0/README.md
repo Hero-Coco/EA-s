@@ -101,3 +101,4 @@ py -3.8 bot.py --backtest
 
 ### Clean Stop:
 To safely shutdown the bot while running live, simply type `stop` or `q` and press **[Enter]**, or press **Ctrl+C**.
+

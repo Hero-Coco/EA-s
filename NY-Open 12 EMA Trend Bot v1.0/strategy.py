@@ -278,3 +278,4 @@ class NYOpen12EMAStrategy:
 
         # 2. Check for 09:35 ET entry signal
         self.check_opening_signal(now_ny)
+
