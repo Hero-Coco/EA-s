@@ -162,7 +162,7 @@ class MT5Manager:
         tp_price: float,
         magic: int,
         comment: str = "SMC-FVG"
-    ) -> Optional[mt5.TradeResult]:
+    ) -> Optional[Any]:
         """
         Executes a market order (BUY / SELL) with predefined Stop Loss and Take Profit.
         """

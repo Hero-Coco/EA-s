@@ -14,7 +14,7 @@ Handles:
 
 import math
 from datetime import datetime
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Any
 import pandas as pd
 import pytz
 import MetaTrader5 as mt5
@@ -173,7 +173,7 @@ class MT5Manager:
         initial_sl: float,
         magic: int,
         comment: str = "NY-12EMA"
-    ) -> Optional[mt5.TradeResult]:
+    ) -> Optional[Any]:
         """
         Executes a market order (BUY / SELL) with Stop Loss.
         Take Profit is strictly 0.0 (closed by trailing stop).
