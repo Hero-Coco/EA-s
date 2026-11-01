@@ -80,3 +80,4 @@ def record_trade_to_csv(trade_info: Dict[str, Any]):
             writer.writerow(row)
     except Exception as e:
         logging.getLogger("SMCBot").error(f"Failed to record trade to CSV: {e}")
+

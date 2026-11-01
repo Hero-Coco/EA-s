@@ -128,3 +128,4 @@ def plot_smc_setup(
     plt.close(fig)
 
     return str(save_path)
+

@@ -78,3 +78,4 @@ PAIR_PROFILES = {
         "lot_size": 0.1,
     }
 }
+

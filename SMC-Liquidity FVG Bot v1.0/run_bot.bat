@@ -39,3 +39,4 @@ echo.
 %PYTHON_EXE% bot.py
 
 pause
+

@@ -223,3 +223,4 @@ class MT5Manager:
             mt5.shutdown()
             self.is_connected = False
             self.logger.info("MT5 connection terminated.")
+
