@@ -78,3 +78,4 @@ py -3.8 backtest.py --target XAUUSD --bars 3000 --balance 1000
 - **960101**: XAUUSD (Gold)
 - **960102**: BTCUSD (Bitcoin)
 - **960103**: USTEC / NAS100 (Nasdaq)
+

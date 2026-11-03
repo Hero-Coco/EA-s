@@ -18,3 +18,4 @@ if errorlevel 1 (
     echo [ERROR] Bot exited with an error code!
     pause
 )
+

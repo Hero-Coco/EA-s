@@ -263,3 +263,4 @@ if __name__ == "__main__":
         n_bars=args.bars
     )
     backtester.run()
+

@@ -60,3 +60,4 @@ TARGET_PROFILES = {
         "description": "Nasdaq 100 Index - M15 Tech Momentum"
     }
 }
+
