@@ -1,0 +1,13 @@
+# GitHub Funding Configuration
+# This file enables the "❤️ Sponsor" button at the top of your GitHub repository.
+
+# 1. GitHub Sponsors (Replace with your GitHub username if enrolled in GitHub Sponsors)
+github: Hero-Coco
+
+# 2. Popular donation platforms (Uncomment and add your username if you use any)
+# patreon: your_patreon_username
+# buy_me_a_coffee: your_bmac_username
+# ko_fi: your_kofi_username
+
+# 3. Custom link (e.g., PayPal, personal donation page, or crypto wallet link)
+# custom: ['https://paypal.me/yourname']
