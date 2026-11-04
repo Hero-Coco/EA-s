@@ -101,14 +101,14 @@ class NYOpen12EMAStrategy:
 
         df = self.compute_indicators(df)
 
-        # Identify the 09:30:00 bar of today
-        # In MT5, the bar timestamp is the open time of the bar (i.e. 09:30:00 represents 09:30 - 09:35)
+        # Identify the 08:00:00 bar of today (Forex/Gold NY Open)
+        # In MT5, the bar timestamp is the open time of the bar (i.e. 08:00:00 represents 08:00 - 08:05)
         today = now_ny.date()
         target_bar_ny = None
 
         for idx, row in df.iterrows():
             bar_time = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
-            if bar_time.date() == today and bar_time.hour == 9 and bar_time.minute == 30:
+            if bar_time.date() == today and bar_time.hour == 8 and bar_time.minute == 0:
                 target_bar_ny = row
                 break
 
@@ -121,7 +121,7 @@ class NYOpen12EMAStrategy:
         atr = float(target_bar_ny['atr']) if not np.isnan(target_bar_ny['atr']) else (first_close * 0.005)
 
         self.logger.info(
-            f"[{self.target_name}] First 5-min Candle (09:30-09:35 ET) Closed: "
+            f"[{self.target_name}] First 5-min Candle (08:00-08:05 ET) Closed: "
             f"Close = {first_close:.4f} | 12 EMA = {ema12:.4f} | ATR({config.ATR_PERIOD}) = {atr:.4f}"
         )
 

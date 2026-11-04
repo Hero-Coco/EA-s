@@ -79,7 +79,7 @@ class BotController:
         print("=" * 78)
         print(f" Active Pairs ({len(self.active_pairs)})     : {', '.join(self.active_pairs)}")
         print(f" Execution Timeframe  : {config.EXECUTION_TIMEFRAME_NAME} Candle Close")
-        print(f" NY Range Window      : 09:30 - 09:35 ET")
+        print(f" NY Range Window      : 08:00 - 08:05 ET (13:00 UTC / 19:00 BD)")
         lot_info = f"Dynamic ({config.RISK_PERCENT}% Risk of Balance per Trade)" if config.USE_DYNAMIC_LOT else f"Fixed ({config.LOT_SIZE} lots)"
         print(f" Position Sizing      : {lot_info}")
         print("=" * 78)

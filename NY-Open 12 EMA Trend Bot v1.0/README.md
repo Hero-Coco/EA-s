@@ -2,14 +2,14 @@
 
 An institutional-grade, fully automated algorithmic Expert Advisor for **MetaTrader 5 (MT5)** developed in Python 3.8. 
 
-The bot is designed to capture high-momentum directional moves on **NASDAQ 100 (NAS100 / USTEC)** and **Gold (XAUUSD)** right at the New York Cash Market Open (09:30 AM ET).
+The bot is designed to capture high-momentum directional moves on **NASDAQ 100 (NAS100 / USTEC)** and **Gold (XAUUSD)** right at the Forex & Gold New York Market Open (**08:00 AM ET / 13:00 UTC / 19:00 BD Time**).
 
 ---
 
 ## 🎯 Strategy Rules & Execution Logic
 
 ### 1. Entry Logic
-* **Time**: At the close of the **FIRST 5-minute candle** after the New York market open (**09:30 - 09:35 AM ET**).
+* **Time**: At the close of the **FIRST 5-minute candle** after the New York market open (**08:00 - 08:05 AM ET**).
 * **Indicator**: 12-period Exponential Moving Average (**12 EMA**) calculated dynamically on the 5-minute timeframe.
 * **Signals**:
   * If `Candle Close > 12 EMA` ➔ **Open BUY Position** (Market Order)

@@ -149,10 +149,10 @@ class NYOpenBacktester:
 
             day_bars = days_data[d]
 
-            # 2. Find the 09:30 - 09:35 ET M5 opening candle
+            # 2. Find the 08:00 - 08:05 ET M5 opening candle (Forex/Gold NY Open)
             range_candle = None
             for b in day_bars:
-                if b["time_only"] == time(9, 30):
+                if b["time_only"] == time(8, 0):
                     range_candle = b
                     break
 

@@ -1,13 +1,13 @@
 # Gold-EMA NY Open Bot v1.0 (XAUUSD M5)
 
-Expert Advisor designed for XAUUSD (Gold) on the M5 timeframe combining the **New York Market Open (09:30 - 09:35 ET)** with a **50-period Exponential Moving Average (EMA 50)** confluence.
+Expert Advisor designed for XAUUSD (Gold) on the M5 timeframe combining the **Forex/Gold New York Market Open (08:00 - 08:05 ET / 13:00 UTC / 19:00 BD Time)** with a **50-period Exponential Moving Average (EMA 50)** confluence.
 
 ---
 
 ## 🎯 Core Strategy Architecture
 
-### 1. Timing Filter (New York Open)
-- **Active Window:** 09:30 - 09:35 ET (14:30 - 14:35 UTC).
+### 1. Timing Filter (Forex/Gold New York Open)
+- **Active Window:** 08:00 - 08:05 ET (13:00 - 13:05 UTC / 19:00 - 19:05 BD Time).
 - Uses `pytz.timezone('US/Eastern')` for exact New York market time synchronization.
 - All outside signals are strictly ignored. Only 1 trade per day.
 
@@ -15,7 +15,7 @@ Expert Advisor designed for XAUUSD (Gold) on the M5 timeframe combining the **Ne
 - 50-period Exponential Moving Average calculated on completed M5 candle closes.
 - Function: `calculate_ema(df, period=50)`.
 
-### 3. 5-Minute Candle Analysis (at 09:35 ET Close)
+### 3. 5-Minute Candle Analysis (at 08:05 ET Close)
 - **Long Entry:** 5-min candle CLOSE > EMA 50
 - **Short Entry:** 5-min candle CLOSE < EMA 50
 - **Volatility Filter:** Skip trade if candle range < 300 points ($3.00 / 30 pips).
@@ -55,3 +55,4 @@ Or double-click `run_bot.bat`.
 py -3.8 backtest.py
 ```
 Outputs complete statistics and generates `backtest_results.csv`.
+

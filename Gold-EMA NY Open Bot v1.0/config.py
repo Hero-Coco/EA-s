@@ -17,12 +17,12 @@ SYMBOL_CANDIDATES = ["XAUUSDm", "XAUUSD", "GOLD", "XAUUSD.m"]
 TIMEFRAME_STR = "M5"
 MAGIC_NUMBER = 990101
 
-# Timing Filter (New York Market Open)
+# Timing Filter (Forex/Gold New York Market Open: 08:00 AM ET / 13:00 UTC / 19:00 BD Time)
 NY_TIMEZONE = "US/Eastern"
-NY_OPEN_HOUR = 9
-NY_OPEN_MINUTE = 30
-NY_ENTRY_MINUTE = 35          # 09:35 ET - when the first 5-min candle (09:30-09:35) closes
-NY_WINDOW_END_MINUTE = 40     # Window closes at 09:40 ET
+NY_OPEN_HOUR = 8
+NY_OPEN_MINUTE = 0
+NY_ENTRY_MINUTE = 5           # 08:05 ET - when the first 5-min candle (08:00-08:05) closes
+NY_WINDOW_END_MINUTE = 15     # Window closes at 08:15 ET
 
 # EMA Indicator Settings
 EMA_PERIOD = 50
@@ -40,3 +40,4 @@ MIN_CANDLE_RANGE_POINTS = 300 # Minimum 5-min candle range ($3.00 / 30 pips) to 
 MAX_SPREAD_POINTS = 250       # Max allowed spread: 250 points ($2.50 / 25 pips)
 MAX_DAILY_LOSS = 500.0        # Max daily loss threshold (-$500). If hit, stop trading
 MAX_TRADES_PER_DAY = 1        # Max 1 trade per day
+

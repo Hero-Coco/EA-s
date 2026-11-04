@@ -193,8 +193,8 @@ class MT5Manager:
         if rates is None or len(rates) == 0:
             return None
 
-        target_open_time = time(9, 30)
-        target_close_time = time(9, 35)
+        target_open_time = time(8, 0)
+        target_close_time = time(8, 5)
 
         profile = config.get_pair_profile(sym)
         point_unit = profile.get("index_point_size", 1.0)

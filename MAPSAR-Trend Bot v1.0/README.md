@@ -12,3 +12,4 @@ cd "E:\EA's\MAPSAR-Trend Bot v1.0"
 py -3.8 bot.py
 ```
 Or double-click `run_bot.bat`.
+

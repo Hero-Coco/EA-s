@@ -291,3 +291,4 @@ class MT5Manager:
                 continue
             filtered.append(pos)
         return filtered
+

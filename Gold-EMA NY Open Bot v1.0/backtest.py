@@ -80,12 +80,12 @@ class GoldEMABacktester:
         df['date'] = df['time_ny'].dt.date
         unique_dates = df['date'].unique()
 
-        logger.info(f"Scanning {len(unique_dates)} trading days for 09:30 NY Open candles...")
+        logger.info(f"Scanning {len(unique_dates)} trading days for 08:00 NY Open candles...")
 
         for trading_date in unique_dates:
             day_candles = df[df['date'] == trading_date]
-            # Find the 09:30-09:35 candle
-            open_candle_mask = (day_candles['time_ny'].dt.hour == 9) & (day_candles['time_ny'].dt.minute == 30)
+            # Find the 08:00-08:05 candle (Forex/Gold NY Open)
+            open_candle_mask = (day_candles['time_ny'].dt.hour == 8) & (day_candles['time_ny'].dt.minute == 0)
             if not open_candle_mask.any():
                 continue
 
@@ -238,3 +238,4 @@ class GoldEMABacktester:
 if __name__ == "__main__":
     backtester = GoldEMABacktester(initial_balance=1000.0, n_bars=12000)
     backtester.run()
+

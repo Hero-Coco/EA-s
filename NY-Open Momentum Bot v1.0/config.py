@@ -128,17 +128,17 @@ INDEX_POINT_SIZE = 1.0
 # ==============================================================================
 TIMEZONE_STR = "US/Eastern"
 
-# Timing of New York Market Open
-# 09:30 ET: NY stock exchange opens, start of 5-minute opening candle
-NY_OPEN_TIME = time(9, 30)
+# Timing of Forex/Gold New York Market Open (08:00 AM ET / 13:00 UTC / 19:00 BD Time)
+# 08:00 ET: NY Forex/Gold opens, start of 5-minute opening candle
+NY_OPEN_TIME = time(8, 0)
 
-# 09:35 ET: 5-minute candle closes, establishing the Breakout Box
-NY_RANGE_END_TIME = time(9, 35)
+# 08:05 ET: 5-minute candle closes, establishing the Breakout Box
+NY_RANGE_END_TIME = time(8, 5)
 
 # Session Window for Breakout Monitoring:
-# 09:35 ET to 11:00 ET (allows capturing the morning momentum breakout)
+# 08:05 ET to 11:00 ET (allows capturing the morning momentum breakout)
 # If you want to restrict strictly to the open window, adjust as needed.
-TRADE_WINDOW_START = time(9, 35)
+TRADE_WINDOW_START = time(8, 5)
 TRADE_WINDOW_END = time(11, 0)
 
 # Execution Timeframe:

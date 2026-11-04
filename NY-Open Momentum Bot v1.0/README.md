@@ -12,14 +12,14 @@ The bot specializes in high-velocity intraday momentum capturing at the **New Yo
 
 ## ⏰ Market Timing & Bangladesh Time (BST) Conversion
 
-The strategy is strictly bound to the New York Cash Open. The bot uses `datetime.now(pytz.timezone('US/Eastern'))` to auto-adjust for US Daylight Saving Time (DST) changes.
+The strategy is strictly bound to the Forex & Gold New York Open (**08:00 AM ET / 13:00 UTC / 19:00 BD Time**). The bot uses `datetime.now(pytz.timezone('US/Eastern'))` to auto-adjust for US Daylight Saving Time (DST) changes.
 
-| Event | US / Eastern Time (ET) | BD Time (Winter / Current) | BD Time (Summer / DST) |
+| Event | US / Eastern Time (ET) | BD Time (Winter / Standard) | BD Time (Summer / DST) |
 |---|---|---|---|
-| **Pre-Market Standby** | Before 09:30 AM | Before 08:30 PM | Before 07:30 PM |
-| **5-Min Range Formation** | **09:30 AM – 09:35 AM** | **08:30 PM – 08:35 PM** | **07:30 PM – 07:35 PM** |
-| **Breakout Box Finalized** | **09:35 AM** | **08:35 PM** | **07:35 PM** |
-| **Trade Execution Window** | **09:35 AM – 11:00 AM** | **08:35 PM – 10:00 PM** | **07:35 PM – 09:00 PM** |
+| **Pre-Market Standby** | Before 08:00 AM | Before 07:00 PM | Before 06:00 PM |
+| **5-Min Range Formation** | **08:00 AM – 08:05 AM** | **07:00 PM – 07:05 PM** | **06:00 PM – 06:05 PM** |
+| **Breakout Box Finalized** | **08:05 AM** | **07:05 PM** | **06:05 PM** |
+| **Trade Execution Window** | **08:05 AM – 11:00 AM** | **07:05 PM – 10:00 PM** | **06:05 PM – 09:00 PM** |
 | **Session End / EOD Exit** | 04:00 PM | 03:00 AM (Next Day) | 02:00 AM (Next Day) |
 
 > [!NOTE]

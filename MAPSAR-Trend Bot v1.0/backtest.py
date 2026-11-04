@@ -209,3 +209,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     MAPSARBacktester(target_name=args.target, initial_balance=args.balance, n_bars=args.bars).run()
+

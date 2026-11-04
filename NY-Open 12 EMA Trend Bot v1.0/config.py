@@ -33,11 +33,10 @@ TIMEZONE_NAME = "America/New_York"
 TIMEFRAME = mt5.TIMEFRAME_M5
 TIMEFRAME_NAME = "M5"
 
-# Trading Session Windows (New York Eastern Time)
-# NY Cash Open: 09:30 AM ET
-# First 5-min candle covers 09:30:00 to 09:34:59 ET, closing at 09:35:00 ET
-NY_OPEN_TIME = time(9, 30)
-ENTRY_SIGNAL_TIME = time(9, 35)
+# Trading Session Windows (Forex/Gold NY Open: 08:00 AM ET / 13:00 UTC / 19:00 BD Time)
+# First 5-min candle covers 08:00:00 to 08:04:59 ET, closing at 08:05:00 ET
+NY_OPEN_TIME = time(8, 0)
+ENTRY_SIGNAL_TIME = time(8, 5)
 
 # End of day trade session cut-off (if any position remains open until NY close)
 SESSION_CLOSE_TIME = time(16, 0)

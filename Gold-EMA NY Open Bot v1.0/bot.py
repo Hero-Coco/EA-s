@@ -443,7 +443,7 @@ class GoldEMANyOpenBot:
         logger.info("=" * 70)
         logger.info(" GOLD-EMA NY OPEN BOT v1.0 STARTED")
         logger.info(f" Symbol: {self.symbol} | Timeframe: M5 | Lot: {config.LOT_SIZE}")
-        logger.info(f" NY Open Window: 09:30 - 09:35 ET | Entry Trigger at 09:35 ET candle close")
+        logger.info(f" NY Open Window: 08:00 - 08:05 ET (13:00 UTC / 19:00 BD) | Entry Trigger at 08:05 ET candle close")
         logger.info(f" Max Daily Loss: -${config.MAX_DAILY_LOSS:.2f} | Max Trades/Day: {config.MAX_TRADES_PER_DAY}")
         logger.info(" Press Ctrl+C in terminal to stop gracefully.")
         logger.info("=" * 70)
@@ -486,11 +486,11 @@ class GoldEMANyOpenBot:
                     time.sleep(5)
                     continue
 
-                # Check Timing Filter: Run exactly during 09:35:00 - 09:39:59 ET
+                # Check Timing Filter: Run exactly during 08:05:00 - 08:14:59 ET
                 if ny_now.hour == config.NY_OPEN_HOUR and config.NY_ENTRY_MINUTE <= ny_now.minute < config.NY_WINDOW_END_MINUTE:
                     logger.info(
                         f"NY Open Window Active! Time: {ny_now.strftime('%H:%M:%S')} ET. "
-                        f"Analyzing 09:30-09:35 M5 candle..."
+                        f"Analyzing 08:00-08:05 M5 candle..."
                     )
 
                     df = self.fetch_m5_rates(n_bars=150)
@@ -510,7 +510,7 @@ class GoldEMANyOpenBot:
 
                             if placed:
                                 trade_executed_today = True
-                                logger.info(f"Daily trade complete. Next trade window will be tomorrow at 09:35 ET.")
+                                logger.info(f"Daily trade complete. Next trade window will be tomorrow at 08:05 ET.")
                         else:
                             trade_executed_today = True  # Setup invalid today, avoid repeating
 
@@ -526,3 +526,4 @@ class GoldEMANyOpenBot:
 if __name__ == "__main__":
     bot = GoldEMANyOpenBot()
     bot.run()
+

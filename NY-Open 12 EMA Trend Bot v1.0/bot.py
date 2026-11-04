@@ -5,7 +5,7 @@ NY-Open 12 EMA Trend Bot v1.0 - Master Control & Execution Script
 Strategy Overview:
 - Instrument: NASDAQ 100 (NAS100 / USTECm) & Gold (XAUUSD / XAUUSDm)
 - Timeframe: 5-Minute (M5)
-- Entry: At 09:35 AM ET (close of 09:30-09:35 candle):
+- Entry: At 08:05 AM ET (close of 08:00-08:05 Forex/Gold NY Open candle):
     * Close > 12 EMA -> BUY
     * Close < 12 EMA -> SELL
 - Position Management:

@@ -253,3 +253,4 @@ class MAPSARStrategy:
             self.logger.info(f"[{self.target_name}] Bar closed at {completed_candle_time}. Evaluating...")
             self.on_candle_close(df)
             self.last_processed_candle_time = completed_candle_time
+

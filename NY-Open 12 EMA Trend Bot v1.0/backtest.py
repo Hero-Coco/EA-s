@@ -81,14 +81,14 @@ class NY12EMABacktester:
 
         for day in unique_days:
             day_bars = df[df['date'] == day]
-            # Need bars from 09:30 onwards
-            ny_open_bars = day_bars[(day_bars.index.time >= time(9, 30))]
+            # Need bars from 08:00 onwards (Forex/Gold NY Open)
+            ny_open_bars = day_bars[(day_bars.index.time >= time(8, 0))]
             if len(ny_open_bars) < 2:
                 continue
 
-            # First bar is 09:30 - 09:35 ET
+            # First bar is 08:00 - 08:05 ET
             first_bar = ny_open_bars.iloc[0]
-            if first_bar.name.time() != time(9, 30):
+            if first_bar.name.time() != time(8, 0):
                 continue
 
             first_close = float(first_bar['close'])
