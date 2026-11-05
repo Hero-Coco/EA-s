@@ -103,17 +103,28 @@ class MAPSARBacktester:
                         "exit_time": curr_bar['time'],
                         "exit_price": round(exit_price, 2),
                         "pnl": round(pnl_usd, 2),
-                        "exit_reason": "Parabolic SAR Hit",
+                        "exit_reason": "Trailing SL Hit",
                         "running_balance": round(self.balance, 2)
                     })
                     self.trades.append(active_trade)
                     active_trade = None
                 else:
-                    # Update SAR trailing stop
-                    if pos_dir == "BUY" and sar1 > current_sl:
-                        active_trade["sl"] = sar1
-                    elif pos_dir == "SELL" and (current_sl == 0.0 or sar1 < current_sl):
-                        active_trade["sl"] = sar1
+                    # 1:1 R:R Trailing Stop: Starts at 1:1 R:R, advances by 0.5 R for every 0.5 R profit
+                    r = active_trade["r"]
+                    if pos_dir == "BUY":
+                        profit = curr_bar['high'] - entry_price
+                        if profit >= config.TRAIL_START_R * r:
+                            n_steps = int((profit - config.TRAIL_START_R * r) / (config.TRAIL_STEP_R * r))
+                            target_sl = entry_price + (n_steps * config.TRAIL_STEP_R * r)
+                            if target_sl > active_trade["sl"]:
+                                active_trade["sl"] = target_sl
+                    elif pos_dir == "SELL":
+                        profit = entry_price - curr_bar['low']
+                        if profit >= config.TRAIL_START_R * r:
+                            n_steps = int((profit - config.TRAIL_START_R * r) / (config.TRAIL_STEP_R * r))
+                            target_sl = entry_price - (n_steps * config.TRAIL_STEP_R * r)
+                            if target_sl < active_trade["sl"]:
+                                active_trade["sl"] = target_sl
 
             # Check signal reversal or new entry
             if signal is not None:
@@ -145,8 +156,9 @@ class MAPSARBacktester:
 
                 if active_trade is None:
                     entry_price = curr_bar['open']
-                    initial_sl = sar1
-                    sl_dist = abs(entry_price - initial_sl)
+                    r = entry_price * (config.INITIAL_SL_PERCENT / 100.0)
+                    initial_sl = entry_price - r if signal == "BUY" else entry_price + r
+                    sl_dist = r
 
                     if config.USE_DYNAMIC_LOT and sl_dist > 0:
                         risk_usd = self.balance * (config.RISK_PERCENT / 100.0)
@@ -162,6 +174,7 @@ class MAPSARBacktester:
                         "entry_time": curr_bar['time'],
                         "entry_price": round(entry_price, 2),
                         "sl": initial_sl,
+                        "r": r,
                     }
 
         return self._summarize()

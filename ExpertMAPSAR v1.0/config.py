@@ -31,6 +31,11 @@ USE_DYNAMIC_LOT = True
 RISK_PERCENT = 1.0
 MIN_BALANCE_THRESHOLD = 10.0
 
+# Fixed 2.5% Stop Loss & 1:1 R:R Trailing Stop Management
+INITIAL_SL_PERCENT = 2.5       # Fixed 2.5% initial Stop Loss from entry price
+TRAIL_START_R = 1.0            # Start trailing when profit reaches 1:1 R:R (profit >= 1.0 * R)
+TRAIL_STEP_R = 0.5             # Step SL by 0.5 R for every 0.5 R profit advancement
+
 TARGET_PROFILES = {
     "XAUUSD": {
         "broker_symbol_candidates": ["XAUUSDm", "XAUUSD", "GOLD", "XAUUSD.m"],

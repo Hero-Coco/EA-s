@@ -50,12 +50,49 @@ class SMCLiquidityStrategy:
         self.active_trade_details: Optional[Dict[str, Any]] = None
         self.last_processed_candle_time: Optional[pd.Timestamp] = None
 
+        # State Recovery on startup
+        self.recover_existing_positions()
+
+    def recover_existing_positions(self):
+        """
+        State Recovery: Scans MT5 for open positions matching MAGIC.
+        Adopts existing positions into active tracking and increments trades_count_today
+        to prevent duplicate entries on bot restart.
+        """
+        pos = self.mt5_mgr.get_open_position(self.symbol, self.magic)
+        if pos:
+            self.active_ticket = pos.ticket
+            direction = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
+            self.trades_count_today = 1
+            self.active_trade_details = {
+                "ticket": pos.ticket,
+                "symbol": self.symbol,
+                "direction": direction,
+                "lot_size": pos.volume,
+                "open_time": datetime.fromtimestamp(pos.time).strftime("%Y-%m-%d %H:%M:%S"),
+                "open_price": pos.price_open,
+                "sl_price": pos.sl,
+                "tp_price": pos.tp,
+                "fvg_top": 0.0,
+                "fvg_bottom": 0.0,
+                "fvg_size": 0.0,
+                "pnl": 0.0,
+                "exit_reason": "Active"
+            }
+            self.logger.info(
+                f"[{self.target_name}] STATE RECOVERY: Adopted existing {direction} position "
+                f"#{pos.ticket} @ {pos.price_open:.2f} (SL: {pos.sl:.2f}, TP: {pos.tp:.2f}, Volume: {pos.volume}). "
+                f"Resuming active SL/TP monitoring..."
+            )
+
     def reset_daily_state(self, current_date: date):
         """Resets daily trade counters on a new calendar day."""
         if self.current_trading_day != current_date:
             self.current_trading_day = current_date
-            self.trades_count_today = 0
-            self.logger.info(f"[{self.target_name}] New Day Initialized ({current_date}). Daily trade count reset to 0.")
+            pos = self.mt5_mgr.get_open_position(self.symbol, self.magic)
+            if pos is None:
+                self.trades_count_today = 0
+            self.logger.info(f"[{self.target_name}] New Day Initialized ({current_date}).")
 
     def monitor_active_position(self):
         """Checks if open position hit SL or TP in MT5."""

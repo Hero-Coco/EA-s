@@ -11,6 +11,7 @@ Replicates the exact mathematical behavior of MQL5 ExpertMAMA:
 """
 
 import logging
+import math
 from typing import Optional, Tuple, Dict, Any, List
 import pandas as pd
 import numpy as np
@@ -112,19 +113,12 @@ class ShiftedMAStrategy:
 
     def manage_trailing_stop(self, position: Any, df: pd.DataFrame) -> None:
         """
-        Replicates MQL5 CTrailingMA.CheckTrailingStop:
-        - For BUY: new_sl = trailing_ma. If new_sl > base_sl and new_sl < Bid - StopLevel, update SL.
-        - For SELL: new_sl = trailing_ma + spread. If new_sl < base_sl and new_sl > Ask + StopLevel, update SL.
+        Manages Trailing Stop based on user rules:
+        - Initial SL = Fixed 2.5% of entry price (Risk distance R = entry_price * 0.025)
+        - Starts trailing when trade reaches 1:1 R:R (profit >= 1.0 * R)
+        - At 1:1 R:R -> SL moves to Break-Even (entry_price)
+        - For every 0.5 R of further favorable move -> SL moves up by 0.5 R
         """
-        if len(df) < config.TRAILING_MA_PERIOD + 5:
-            return
-
-        df_ind = self.calculate_indicators(df)
-        bar1 = df_ind.iloc[-2]
-        t_ma1 = bar1['trailing_ma']
-        if pd.isna(t_ma1):
-            return
-
         info = self.mt5_mgr.get_symbol_info(self.symbol)
         if not info:
             return
@@ -136,38 +130,48 @@ class ShiftedMAStrategy:
         digits = info.digits
         point = info.point
         stops_level = info.trade_stops_level * point
-        spread = info.spread * point
 
         pos_type = position.type
         pos_sl = position.sl
         pos_open = position.price_open
         ticket = position.ticket
 
-        if pos_type == 0:  # ORDER_TYPE_BUY
-            base = pos_open if pos_sl == 0.0 else pos_sl
-            level = tick.bid - stops_level
-            new_sl = round(t_ma1, digits)
+        # 1. Calculate Risk Distance R (2.5% of entry open price)
+        r = pos_open * (config.INITIAL_SL_PERCENT / 100.0)
+        trail_start_dist = config.TRAIL_START_R * r
+        trail_step_dist = config.TRAIL_STEP_R * r
 
-            # Move SL up only if it exceeds current SL and is below valid stops level
-            if new_sl > base and new_sl < level:
-                self.logger.info(
-                    f"[{self.target_name}] Trailing MA update BUY #{ticket}: "
-                    f"Old SL: {pos_sl:.{digits}f} -> New SL: {new_sl:.{digits}f} (Bid: {tick.bid})"
-                )
-                self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=new_sl, tp=position.tp)
+        if pos_type == 0:  # ORDER_TYPE_BUY
+            profit = tick.bid - pos_open
+            # Check if trade reached at least 1:1 R:R
+            if profit >= trail_start_dist:
+                n_steps = math.floor((profit - trail_start_dist) / trail_step_dist)
+                target_sl = round(pos_open + (n_steps * trail_step_dist), digits)
+                level = tick.bid - stops_level
+
+                if target_sl > pos_sl and target_sl < level:
+                    rr_ratio = profit / r
+                    self.logger.info(
+                        f"[{self.target_name}] 1:1+ R:R Trailing Stop BUY #{ticket} (R:R {rr_ratio:.2f}): "
+                        f"Old SL: {pos_sl:.{digits}f} -> New SL: {target_sl:.{digits}f} (Bid: {tick.bid})"
+                    )
+                    self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=target_sl, tp=position.tp)
 
         elif pos_type == 1:  # ORDER_TYPE_SELL
-            base = pos_open if pos_sl == 0.0 else pos_sl
-            level = tick.ask + stops_level
-            new_sl = round(t_ma1 + spread, digits)
+            profit = pos_open - tick.ask
+            # Check if trade reached at least 1:1 R:R
+            if profit >= trail_start_dist:
+                n_steps = math.floor((profit - trail_start_dist) / trail_step_dist)
+                target_sl = round(pos_open - (n_steps * trail_step_dist), digits)
+                level = tick.ask + stops_level
 
-            # Move SL down only if it is below current SL (or no SL set) and above valid stops level
-            if (pos_sl == 0.0 or new_sl < base) and new_sl > level:
-                self.logger.info(
-                    f"[{self.target_name}] Trailing MA update SELL #{ticket}: "
-                    f"Old SL: {pos_sl:.{digits}f} -> New SL: {new_sl:.{digits}f} (Ask: {tick.ask})"
-                )
-                self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=new_sl, tp=position.tp)
+                if (pos_sl == 0.0 or target_sl < pos_sl) and target_sl > level:
+                    rr_ratio = profit / r
+                    self.logger.info(
+                        f"[{self.target_name}] 1:1+ R:R Trailing Stop SELL #{ticket} (R:R {rr_ratio:.2f}): "
+                        f"Old SL: {pos_sl:.{digits}f} -> New SL: {target_sl:.{digits}f} (Ask: {tick.ask})"
+                    )
+                    self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=target_sl, tp=position.tp)
 
     def on_candle_close(self, df: pd.DataFrame) -> None:
         """Called once per new candle close."""
@@ -205,35 +209,53 @@ class ShiftedMAStrategy:
             )
 
             if not already_open:
-                # Initial SL is set to the Trailing MA value (or fallback point distance)
-                initial_sl = t_ma1
                 tick = mt5.symbol_info_tick(self.symbol)
                 current_price = tick.ask if signal == "BUY" else tick.bid
-                sl_distance = abs(current_price - initial_sl)
+                
+                # Fixed 2.5% initial Stop Loss (Risk unit R = entry_price * 0.025)
+                r_dist = current_price * (config.INITIAL_SL_PERCENT / 100.0)
+                initial_sl = (current_price - r_dist) if signal == "BUY" else (current_price + r_dist)
 
                 # Calculate lot size (Dynamic or Fallback)
                 lot = self.mt5_mgr.calculate_lot_size(
                     symbol=self.symbol,
-                    sl_distance_price=sl_distance,
+                    sl_distance_price=r_dist,
                     target_key=self.target_name
                 )
 
                 self.logger.info(
                     f"[{self.target_name}] Executing {signal} | Lot: {lot} | "
-                    f"Initial SL: {initial_sl:.2f} | Magic: {self.magic_number}"
+                    f"Entry: {current_price:.2f} | Fixed 2.5% Initial SL: {initial_sl:.2f} (R: {r_dist:.2f}) | Magic: {self.magic_number}"
                 )
                 self.mt5_mgr.open_position(
                     symbol=self.symbol,
                     order_type=signal,
                     volume=lot,
                     sl=initial_sl,
-                    tp=0.0,  # Open profit run; closed via Trailing MA or Reversal
+                    tp=0.0,  # Open profit run; trailed via 1:1 R:R rule
                     magic=self.magic_number,
-                    comment="Shifted-MA Master v1.0"
+                    comment="ExpertMAMA v1.0"
                 )
 
+    def recover_existing_positions(self, df: pd.DataFrame) -> None:
+        """
+        State Recovery: Detects and resumes managing any existing trade opened earlier
+        if the bot was stopped and restarted.
+        """
+        existing_positions = self.mt5_mgr.get_open_positions(self.symbol, self.magic_number)
+        if existing_positions:
+            for pos in existing_positions:
+                pos_dir = "BUY" if pos.type == 0 else "SELL"
+                r = pos.price_open * (config.INITIAL_SL_PERCENT / 100.0)
+                self.logger.info(
+                    f"[{self.target_name}] STATE RECOVERY: Adopted existing {pos_dir} position #{pos.ticket} "
+                    f"@ {pos.price_open:.2f} | Current SL: {pos.sl:.2f} (R = {r:.2f}). "
+                    f"Resuming active 1:1 R:R trailing management..."
+                )
+                self.manage_trailing_stop(pos, df)
+
     def poll(self) -> None:
-        """Checks for new closed bar and executes on_candle_close."""
+        """Checks for new closed bar, recovers existing trades, and manages trailing stop."""
         if not self.symbol:
             return
 
@@ -241,17 +263,20 @@ class ShiftedMAStrategy:
         if df is None or len(df) < 20:
             return
 
+        # Continuous Trailing Stop Check on every poll tick for existing positions
+        active_positions = self.mt5_mgr.get_open_positions(self.symbol, self.magic_number)
+        for pos in active_positions:
+            self.manage_trailing_stop(pos, df)
+
         # Check if a new bar has closed
         completed_candle_time = df['time'].iloc[-2]
         if self.last_processed_candle_time is None:
             self.last_processed_candle_time = completed_candle_time
             self.logger.info(
                 f"[{self.target_name}] Synchronized to latest closed candle: {completed_candle_time}. "
-                f"Awaiting next candle close..."
+                f"Scanning for existing trades..."
             )
-            # Update trailing stop on startup if position exists
-            for pos in self.mt5_mgr.get_open_positions(self.symbol, self.magic_number):
-                self.manage_trailing_stop(pos, df)
+            self.recover_existing_positions(df)
             return
 
         if completed_candle_time > self.last_processed_candle_time:

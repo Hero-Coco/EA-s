@@ -142,15 +142,22 @@ class ShiftedMABacktester:
                     active_trade = None
 
                 else:
-                    # Trailing MA update
+                    # 1:1 R:R Trailing Stop: Starts at 1:1 R:R, advances by 0.5 R for every 0.5 R profit
+                    r = active_trade["r"]
                     if pos_dir == "BUY":
-                        new_sl = t_ma1
-                        if new_sl > current_sl:
-                            active_trade["sl"] = new_sl
+                        profit = curr_bar['high'] - entry_price
+                        if profit >= config.TRAIL_START_R * r:
+                            n_steps = int((profit - config.TRAIL_START_R * r) / (config.TRAIL_STEP_R * r))
+                            target_sl = entry_price + (n_steps * config.TRAIL_STEP_R * r)
+                            if target_sl > active_trade["sl"]:
+                                active_trade["sl"] = target_sl
                     elif pos_dir == "SELL":
-                        new_sl = t_ma1
-                        if current_sl == 0.0 or new_sl < current_sl:
-                            active_trade["sl"] = new_sl
+                        profit = entry_price - curr_bar['low']
+                        if profit >= config.TRAIL_START_R * r:
+                            n_steps = int((profit - config.TRAIL_START_R * r) / (config.TRAIL_STEP_R * r))
+                            target_sl = entry_price - (n_steps * config.TRAIL_STEP_R * r)
+                            if target_sl < active_trade["sl"]:
+                                active_trade["sl"] = target_sl
 
             # 2. Check for Signal Reversal or New Trade Entry
             if signal is not None:
@@ -184,8 +191,9 @@ class ShiftedMABacktester:
                 # Open New Position if none active
                 if active_trade is None:
                     entry_price = curr_bar['open']
-                    initial_sl = t_ma1
-                    sl_dist = abs(entry_price - initial_sl)
+                    r = entry_price * (config.INITIAL_SL_PERCENT / 100.0)
+                    initial_sl = entry_price - r if signal == "BUY" else entry_price + r
+                    sl_dist = r
                     
                     # Lot calculation
                     if config.USE_DYNAMIC_LOT and sl_dist > 0:
@@ -202,6 +210,7 @@ class ShiftedMABacktester:
                         "entry_time": curr_bar['time'],
                         "entry_price": round(entry_price, 2),
                         "sl": initial_sl,
+                        "r": r,
                     }
 
         # Summarize results

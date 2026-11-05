@@ -9,6 +9,7 @@ Ported from MQL5 ExpertMAPSAR.mq5 (Magic 14598):
 """
 
 import logging
+import math
 from typing import Optional, Tuple, Dict, Any, List
 import pandas as pd
 import numpy as np
@@ -134,60 +135,77 @@ class MAPSARStrategy:
         return signal, float(s_ma1), float(sar1)
 
     def manage_trailing_stop(self, position: Any, df: pd.DataFrame) -> None:
-        """Trailing Stop logic using Parabolic SAR from CTrailingPSAR."""
-        df_ind = self.calculate_indicators(df)
-        bar1 = df_ind.iloc[-2]
-        sar1 = bar1['sar']
-        if pd.isna(sar1):
+        """
+        Manages Trailing Stop based on user rules:
+        - Initial SL = Fixed 2.5% of entry price (Risk distance R = entry_price * 0.025)
+        - Starts trailing when trade reaches 1:1 R:R (profit >= 1.0 * R)
+        - At 1:1 R:R -> SL moves to Break-Even (entry_price)
+        - For every 0.5 R of further favorable move -> SL moves up by 0.5 R
+        """
+        info = self.mt5_mgr.get_symbol_info(self.symbol)
+        if not info:
             return
 
-        info = self.mt5_mgr.get_symbol_info(self.symbol)
         tick = mt5.symbol_info_tick(self.symbol)
-        if not info or not tick:
+        if not tick:
             return
 
         digits = info.digits
         point = info.point
         stops_level = info.trade_stops_level * point
-        spread = info.spread * point
 
         pos_type = position.type
         pos_sl = position.sl
         pos_open = position.price_open
         ticket = position.ticket
 
-        if pos_type == 0:  # BUY
-            base = pos_open if pos_sl == 0.0 else pos_sl
-            level = tick.bid - stops_level
-            new_sl = round(sar1, digits)
+        # 1. Calculate Risk Distance R (2.5% of entry open price)
+        r = pos_open * (config.INITIAL_SL_PERCENT / 100.0)
+        trail_start_dist = config.TRAIL_START_R * r
+        trail_step_dist = config.TRAIL_STEP_R * r
 
-            if new_sl > base and new_sl < level:
-                self.logger.info(
-                    f"[{self.target_name}] Parabolic SAR Trailing BUY #{ticket}: "
-                    f"Old SL: {pos_sl} -> New SL: {new_sl} (SAR: {sar1:.2f})"
-                )
-                self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=new_sl, tp=position.tp)
+        if pos_type == 0:  # ORDER_TYPE_BUY
+            profit = tick.bid - pos_open
+            # Check if trade reached at least 1:1 R:R
+            if profit >= trail_start_dist:
+                n_steps = math.floor((profit - trail_start_dist) / trail_step_dist)
+                target_sl = round(pos_open + (n_steps * trail_step_dist), digits)
+                level = tick.bid - stops_level
 
-        elif pos_type == 1:  # SELL
-            base = pos_open if pos_sl == 0.0 else pos_sl
-            level = tick.ask + stops_level
-            new_sl = round(sar1 + spread, digits)
+                if target_sl > pos_sl and target_sl < level:
+                    rr_ratio = profit / r
+                    self.logger.info(
+                        f"[{self.target_name}] 1:1+ R:R Trailing Stop BUY #{ticket} (R:R {rr_ratio:.2f}): "
+                        f"Old SL: {pos_sl:.{digits}f} -> New SL: {target_sl:.{digits}f} (Bid: {tick.bid})"
+                    )
+                    self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=target_sl, tp=position.tp)
 
-            if (pos_sl == 0.0 or new_sl < base) and new_sl > level:
-                self.logger.info(
-                    f"[{self.target_name}] Parabolic SAR Trailing SELL #{ticket}: "
-                    f"Old SL: {pos_sl} -> New SL: {new_sl} (SAR: {sar1:.2f})"
-                )
-                self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=new_sl, tp=position.tp)
+        elif pos_type == 1:  # ORDER_TYPE_SELL
+            profit = pos_open - tick.ask
+            # Check if trade reached at least 1:1 R:R
+            if profit >= trail_start_dist:
+                n_steps = math.floor((profit - trail_start_dist) / trail_step_dist)
+                target_sl = round(pos_open - (n_steps * trail_step_dist), digits)
+                level = tick.ask + stops_level
+
+                if (pos_sl == 0.0 or target_sl < pos_sl) and target_sl > level:
+                    rr_ratio = profit / r
+                    self.logger.info(
+                        f"[{self.target_name}] 1:1+ R:R Trailing Stop SELL #{ticket} (R:R {rr_ratio:.2f}): "
+                        f"Old SL: {pos_sl:.{digits}f} -> New SL: {target_sl:.{digits}f} (Ask: {tick.ask})"
+                    )
+                    self.mt5_mgr.modify_position_sltp(ticket, self.symbol, sl=target_sl, tp=position.tp)
 
     def on_candle_close(self, df: pd.DataFrame) -> None:
         completed_candle_time = df['time'].iloc[-2]
         signal, s_ma1, sar1 = self.evaluate_signals(df)
         active_positions = self.mt5_mgr.get_open_positions(self.symbol, self.magic_number)
 
+        # 1. Update trailing stops for active positions first
         for pos in active_positions:
             self.manage_trailing_stop(pos, df)
 
+        # 2. Check for new trade or reversal signal
         if signal is not None:
             self.logger.info(
                 f"[{self.target_name}] New Signal: {signal} at {completed_candle_time} | "
@@ -198,7 +216,7 @@ class MAPSARStrategy:
             for pos in active_positions:
                 is_buy = (pos.type == 0)
                 if (signal == "BUY" and not is_buy) or (signal == "SELL" and is_buy):
-                    self.logger.info(f"[{self.target_name}] Reversal: Closing #{pos.ticket}")
+                    self.logger.info(f"[{self.target_name}] Signal reversal: Closing #{pos.ticket} before opening {signal}")
                     self.mt5_mgr.close_position(pos)
 
             active_positions = self.mt5_mgr.get_open_positions(self.symbol, self.magic_number)
@@ -208,20 +226,22 @@ class MAPSARStrategy:
             )
 
             if not already_open:
-                initial_sl = sar1
                 tick = mt5.symbol_info_tick(self.symbol)
                 current_price = tick.ask if signal == "BUY" else tick.bid
-                sl_distance = abs(current_price - initial_sl)
+
+                # Fixed 2.5% initial Stop Loss (Risk unit R = entry_price * 0.025)
+                r_dist = current_price * (config.INITIAL_SL_PERCENT / 100.0)
+                initial_sl = (current_price - r_dist) if signal == "BUY" else (current_price + r_dist)
 
                 lot = self.mt5_mgr.calculate_lot_size(
                     symbol=self.symbol,
-                    sl_distance_price=sl_distance,
+                    sl_distance_price=r_dist,
                     target_key=self.target_name
                 )
 
                 self.logger.info(
                     f"[{self.target_name}] Executing {signal} | Lot: {lot} | "
-                    f"Initial SL (Parabolic SAR): {initial_sl:.2f}"
+                    f"Entry: {current_price:.2f} | Fixed 2.5% Initial SL: {initial_sl:.2f} (R: {r_dist:.2f}) | Magic: {self.magic_number}"
                 )
                 self.mt5_mgr.open_position(
                     symbol=self.symbol,
@@ -230,8 +250,25 @@ class MAPSARStrategy:
                     sl=initial_sl,
                     tp=0.0,
                     magic=self.magic_number,
-                    comment="MAPSAR-Trend Bot v1.0"
+                    comment="ExpertMAPSAR v1.0"
                 )
+
+    def recover_existing_positions(self, df: pd.DataFrame) -> None:
+        """
+        State Recovery: Detects and resumes managing any existing trade opened earlier
+        if the bot was stopped and restarted.
+        """
+        existing_positions = self.mt5_mgr.get_open_positions(self.symbol, self.magic_number)
+        if existing_positions:
+            for pos in existing_positions:
+                pos_dir = "BUY" if pos.type == 0 else "SELL"
+                r = pos.price_open * (config.INITIAL_SL_PERCENT / 100.0)
+                self.logger.info(
+                    f"[{self.target_name}] STATE RECOVERY: Adopted existing {pos_dir} position #{pos.ticket} "
+                    f"@ {pos.price_open:.2f} | Current SL: {pos.sl:.2f} (R = {r:.2f}). "
+                    f"Resuming active 1:1 R:R trailing management..."
+                )
+                self.manage_trailing_stop(pos, df)
 
     def poll(self) -> None:
         if not self.symbol:
@@ -245,8 +282,8 @@ class MAPSARStrategy:
         if self.last_processed_candle_time is None:
             self.last_processed_candle_time = completed_candle_time
             self.logger.info(f"[{self.target_name}] Synchronized to {completed_candle_time}. Awaiting next close...")
-            for pos in self.mt5_mgr.get_open_positions(self.symbol, self.magic_number):
-                self.manage_trailing_stop(pos, df)
+            # State recovery on startup
+            self.recover_existing_positions(df)
             return
 
         if completed_candle_time > self.last_processed_candle_time:

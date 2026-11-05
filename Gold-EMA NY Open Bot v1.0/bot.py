@@ -434,10 +434,42 @@ class GoldEMANyOpenBot:
                 print(f" Total Net P&L  : ${total_pnl:+,.2f}")
         print("=" * 60 + "\n")
 
+    def recover_existing_positions(self) -> None:
+        """
+        State Recovery: Scans MT5 for open positions matching MAGIC_NUMBER.
+        Adopts existing positions into active trailing stop management and marks
+        trades_today to avoid duplicate execution on bot restart.
+        """
+        positions = mt5.positions_get(symbol=self.symbol)
+        if positions:
+            for p in positions:
+                if p.magic == config.MAGIC_NUMBER:
+                    self.active_position_ticket = p.ticket
+                    direction = "LONG" if p.type == mt5.ORDER_TYPE_BUY else "SHORT"
+                    self.active_trade_info = {
+                        "ticket": p.ticket,
+                        "direction": direction,
+                        "entry_price": p.price_open,
+                        "initial_sl": p.sl,
+                        "current_sl": p.sl,
+                        "entry_time": datetime.fromtimestamp(p.time),
+                        "trailing_activated": False,
+                    }
+                    self.trades_today = 1
+                    logger.info(
+                        f"STATE RECOVERY: Adopted existing {direction} position #{p.ticket} "
+                        f"@ {p.price_open:.2f} (SL: {p.sl:.2f}, Volume: {p.volume}). "
+                        f"Trades today set to 1. Resuming trailing stop management..."
+                    )
+                    break
+
     def run(self):
         """Main monitoring and trading loop."""
         if not self.initialize_mt5():
             return
+
+        # Adopt existing open position if bot was restarted while trade was active
+        self.recover_existing_positions()
 
         ny_tz = pytz.timezone(config.NY_TIMEZONE)
         logger.info("=" * 70)

@@ -68,6 +68,30 @@ class NYOpenMomentumStrategy:
         self.last_trailing_update_price: float = 0.0
         self.last_evaluated_candle_time: Optional[datetime] = None
 
+        # State Recovery on startup
+        self.recover_existing_positions()
+
+    def recover_existing_positions(self):
+        """
+        State Recovery: Scans MT5 for open positions matching MAGIC_NUMBER.
+        Adopts existing positions into active trailing stop management and sets
+        trades_count_today to prevent duplicate execution on restart.
+        """
+        positions = self.mt5.get_open_positions(symbol=self.symbol, magic=self.magic)
+        if positions:
+            pos = positions[0]
+            self.active_ticket = pos["ticket"]
+            self.position_direction = pos["type"]
+            self.entry_price = pos["price_open"]
+            self.initial_sl = pos["sl"]
+            self.current_sl = pos["sl"]
+            self.trades_count_today = 1
+            self.logger.info(
+                f"[{self.symbol}] STATE RECOVERY: Adopted existing {self.position_direction} position "
+                f"#{pos['ticket']} @ {pos['price_open']:.2f} (SL: {pos['sl']:.2f}, Vol: {pos['volume']}). "
+                f"Trades count today set to 1. Resuming trailing stop management..."
+            )
+
     def reset_daily_state_if_needed(self, current_ny_dt: datetime):
         """Resets the intraday state variables whenever a new calendar day begins."""
         today = current_ny_dt.date()
@@ -78,7 +102,9 @@ class NYOpenMomentumStrategy:
             self.range_low = 0.0
             self.range_size = 0.0
             self.range_valid = False
-            self.trades_count_today = 0
+            positions = self.mt5.get_open_positions(symbol=self.symbol, magic=self.magic)
+            if not positions:
+                self.trades_count_today = 0
             self.daily_loss_points = 0.0
             self.daily_halted = False
             self.last_evaluated_candle_time = None

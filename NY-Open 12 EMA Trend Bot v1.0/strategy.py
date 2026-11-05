@@ -52,17 +52,40 @@ class NYOpen12EMAStrategy:
         self.last_trail_sl: float = 0.0
         self.ema12_at_entry: float = 0.0
 
+        # State Recovery on startup
+        self.recover_existing_positions()
+
+    def recover_existing_positions(self):
+        """
+        State Recovery: Detects and adopts existing open positions from MT5 upon bot startup/restart.
+        Prevents duplicate entries and resumes trailing stop monitoring.
+        """
+        pos = self.mt5_mgr.get_open_position(self.symbol, self.magic)
+        if pos:
+            self.active_ticket = pos.ticket
+            self.active_direction = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
+            self.entry_price = pos.price_open
+            self.last_trail_sl = pos.sl
+            self.signal_processed_today = True
+            self.logger.info(
+                f"[{self.target_name}] STATE RECOVERY: Adopted existing {self.active_direction} position "
+                f"#{pos.ticket} @ {pos.price_open:.2f} (SL: {pos.sl:.2f}, Volume: {pos.volume}). "
+                f"Resuming active trailing stop management..."
+            )
+
     def reset_daily_state(self, current_date: date):
         """Resets flags at the start of a new New York trading day."""
         if self.current_trading_day != current_date:
             self.current_trading_day = current_date
             self.signal_processed_today = False
-            self.active_ticket = None
-            self.active_direction = None
-            self.entry_price = 0.0
-            self.entry_time = None
-            self.last_trail_sl = 0.0
-            self.ema12_at_entry = 0.0
+            pos = self.mt5_mgr.get_open_position(self.symbol, self.magic)
+            if pos is None:
+                self.active_ticket = None
+                self.active_direction = None
+                self.entry_price = 0.0
+                self.entry_time = None
+                self.last_trail_sl = 0.0
+                self.ema12_at_entry = 0.0
             self.logger.info(f"[{self.target_name} ({self.symbol})] New Trading Day Initialized: {current_date}")
 
     def compute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
