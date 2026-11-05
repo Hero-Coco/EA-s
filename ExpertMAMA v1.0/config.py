@@ -1,8 +1,8 @@
 """
 =============================================================================
-Shifted-MA Trend Master v1.0 - Central Configuration
+ExpertMAMA v1.0 - Central Configuration
 =============================================================================
-Pure Python replication of the highly profitable MQL5 ExpertMAMA EA
+Pure Python 3.8 replication of MT5 built-in EA: ExpertMAMA.mq5 (Magic 12003)
 (CSignalMA Period=12, Shift=6 + CTrailingMA Period=12, Shift=0, SMA)
 =============================================================================
 """
